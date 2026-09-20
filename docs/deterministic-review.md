@@ -58,7 +58,9 @@ A diff changes something when any of three kinds of evidence is present:
 
 - `+`/`-` content lines.
 - A hunk that carries no content line. Git writes an `@@` header only for a region it found different, so a truncated or hand-edited diff whose content lines are gone still counts as a change rather than grading itself empty. Every `@@` header git writes for a whole diff has content under it, so this is deliberate fail-closed insurance against degenerate input, not a rule ordinary diffs meet.
-- A marker for a change that has neither: a created or deleted file (`new file mode` / `deleted file mode`), a rename (`rename from` / `rename to`), a copy (`copy from` / `copy to`, which git emits under `--find-copies` or `diff.renames=copies`), a binary file (`Binary files ... differ`), or a mode change (`old mode` / `new mode`).
+- A marker for a change that has neither: a created or deleted file (`new file mode` / `deleted file mode`), a rename (`rename from` / `rename to`), a copy (`copy from` / `copy to`, which git emits under `--find-copies` or `diff.renames=copies`), a binary file (`Binary files ... differ` in a plain diff, `GIT binary patch` under `--binary`), a mode change (`old mode` / `new mode`), or a submodule record (`Submodule <path> <old>..<new>`, which git writes under `diff.submodule=log` or `=diff`).
+
+Git writes the submodule record with no `diff --git` header of its own, so a diff that carries only submodule records is change evidence this layer cannot name: the refusal below declines it with exit 2 rather than grading it empty.
 
 So a pure rename, a chmod, a replaced image, an added blank line and an empty `.gitkeep` are all real changes: `--claim change` passes over them and `--claim no-change` fails.
 A stanza that is only `---`/`+++` header lines, or a bare `+` outside any hunk, changes nothing and counts as empty.
@@ -115,6 +117,7 @@ Any readable stream is a valid `--diff`, including a pipe, a process substitutio
 
 Run it at the validation point, before or alongside the agent's own review of the diff.
 The fleet reaches it from two places: a ship brief's definition of done tells the worker to run the pass over its own branch diff and report what it printed, and `bin/fm-review-diff.sh`, which resolves the authoritative task diff for review, is the natural producer to pipe into it.
+Both resolve the base the same way, because a diff against the wrong base is a report about the wrong change: a remote-backed project compares against a freshly fetched `origin/<default>`, since a pooled clone never freshens its local default branch, and a local-only project compares against the local `<default>`.
 It is an input to review, not a gate: this graduation adds no required check, changes no merge authority, and does not modify `fm-pr-check.sh` or `fm-pr-merge.sh`.
 A worker or reviewer can cite the verdict in a PR body or task report; a FAIL line names each failure directly.
 

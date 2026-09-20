@@ -1023,6 +1023,87 @@ expect_code 0 "$code" "an empty diff is not mistaken for a headerless one"
 out=$(bash "$REVIEW" --diff "$EMPTY_DIFF" --claim change) && code=0 || code=$?
 expect_code 1 "$code" "an empty diff still fails a change claim"
 
+# --- the change-evidence spellings a plain `git diff` does not write --------
+
+# `git diff --binary` writes a modified binary file as `GIT binary patch` plus
+# base85 data and no `Binary files ... differ` line, so that marker carries the
+# whole change evidence for the stanza.
+BINPATCH_REPO="$TMP_ROOT/binary-patch-repo"
+BINPATCH_DIFF="$TMP_ROOT/binary-patch.diff"
+mkdir -p "$BINPATCH_REPO"
+(
+  cd "$BINPATCH_REPO" || exit 1
+  git init -q .
+  git config user.email crew@example.test
+  git config user.name crew
+  printf '\211PNG\r\n\032\n\000\001\002\003' > logo.png
+  git add -A
+  git commit -qm init
+  printf '\211PNG\r\n\032\n\000\377\376\375' > logo.png
+  git add -A
+  git diff --cached --binary > "$BINPATCH_DIFF"
+) > /dev/null 2>&1
+grep -q '^GIT binary patch$' "$BINPATCH_DIFF" \
+  || fail "the fixture did not produce a GIT binary patch stanza"
+
+out=$(bash "$REVIEW" --diff "$BINPATCH_DIFF" --claim no-change) && code=0 || code=$?
+expect_code 1 "$code" "a binary rewrite contradicts a no-change claim"
+assert_contains "$out" "claim is 'no-change' but the diff has" \
+  "the GIT binary patch is reported as change evidence"
+
+out=$(bash "$REVIEW" --diff "$BINPATCH_DIFF" --claim change) && code=0 || code=$?
+expect_code 0 "$code" "a binary rewrite satisfies a change claim"
+assert_contains "$out" "logo.png - binary, no hunk" \
+  "the binary rewrite is listed under its marker"
+
+# Under diff.submodule=log - an ordinary user-level git setting that applies to
+# the documented invocation - a submodule bump is written as a
+# `Submodule <path> <old>..<new>:` record carrying no `diff --git` header at
+# all. It is change evidence with no file this layer can name, so the
+# headerless refusal declines it instead of grading the diff empty.
+SUB_ROOT="$TMP_ROOT/submodule-fixture"
+SUB_DIFF="$TMP_ROOT/submodule-log.diff"
+mkdir -p "$SUB_ROOT"
+(
+  cd "$SUB_ROOT" || exit 1
+  git init -q sub
+  cd sub || exit 1
+  git config user.email crew@example.test
+  git config user.name crew
+  printf 'one\n' > f
+  git add -A
+  git commit -qm one
+  cd "$SUB_ROOT" || exit 1
+  git init -q super
+  cd super || exit 1
+  git config user.email crew@example.test
+  git config user.name crew
+  git -c protocol.file.allow=always submodule add -q "$SUB_ROOT/sub" sub
+  git commit -qm add
+  cd "$SUB_ROOT/sub" || exit 1
+  printf 'two\n' >> f
+  git commit -qam two
+  cd "$SUB_ROOT/super/sub" || exit 1
+  git fetch -q origin
+  git checkout -q FETCH_HEAD
+  cd "$SUB_ROOT/super" || exit 1
+  git -c diff.submodule=log diff > "$SUB_DIFF"
+) > /dev/null 2>&1
+grep -q '^Submodule sub ' "$SUB_DIFF" \
+  || fail "the fixture did not produce a diff.submodule=log record"
+assert_not_contains "$(cat "$SUB_DIFF")" "diff --git" \
+  "the submodule log record unexpectedly carries a file header"
+
+for guard in '--claim change' '--claim no-change' '--forbid-path sub' '--max-files 0'; do
+  # shellcheck disable=SC2086  # each guard is a deliberate two-token flag pair
+  out=$(bash "$REVIEW" --diff "$SUB_DIFF" $guard 2>&1) && code=0 || code=$?
+  expect_code 2 "$code" "a headerless submodule record is refused, not verdicted: $guard"
+  assert_contains "$out" "no 'diff --git' header" \
+    "the refusal names the missing header: $guard"
+  assert_not_contains "$out" "PASS" \
+    "a headerless submodule record never reports PASS: $guard"
+done
+
 # --- forbidden paths --------------------------------------------------------
 
 STATE_DIFF="$TMP_ROOT/state.diff"

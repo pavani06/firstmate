@@ -46,8 +46,13 @@
 # structural marker that changes a file without either: a created or deleted
 # file (new file mode / deleted file mode), a rename (rename from / rename to),
 # a copy (copy from / copy to, which git emits under --find-copies or
-# diff.renames=copies), a binary file (Binary files ... differ), or a mode
-# change (old mode / new mode).
+# diff.renames=copies), a binary file (Binary files ... differ for a plain diff,
+# GIT binary patch under --binary), a mode change (old mode / new mode), or a
+# submodule record (Submodule <path> <old>..<new>, which git writes under
+# diff.submodule=log or =diff). Git writes the submodule record with no
+# `diff --git` header of its own, so a diff carrying only submodule records is
+# change evidence this layer cannot name, and the headerless refusal declines
+# it rather than grading it empty.
 #
 # --require and --exclude read the added lines only, never headers, hunk
 # headers, unchanged context lines or removed lines. Matching a context line
@@ -92,7 +97,7 @@ Run deterministic, LLM-free review assertions over one unified diff:
   --max-files N      fail when the diff changes more than N files
 
 A diff changes something when it has +/- content lines, a hunk, or a marker for
-a created, deleted, renamed, copied, mode-changed or binary file. A line is content only
+a created, deleted, renamed, copied, mode-changed, binary or submodule file. A line is content only
 inside a hunk body, so the ---/+++ headers never count while a line whose own
 text starts with + or - always does.
 
@@ -417,9 +422,12 @@ parse_diff() {
         STRUCTURAL=1
         add_marker 'mode change'
         ;;
-      'Binary files '*' differ')
+      'Binary files '*' differ' | 'GIT binary patch')
         STRUCTURAL=1
         add_marker binary
+        ;;
+      'Submodule '?*' '?*'..'?*)
+        STRUCTURAL=1
         ;;
       '@@ '*' @@'*)
         in_hunk=1

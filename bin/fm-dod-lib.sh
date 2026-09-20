@@ -248,9 +248,27 @@ fm_dod_block() {  # <mode> <task-id> <firstmate-root>
     echo "error: fm_dod_block: firstmate root is required" >&2
     return 1
   fi
-  local diff_pass
-  # shellcheck disable=SC2016  # single quotes are deliberate: the backtick-wrapped command is literal brief text that must reach the reading agent verbatim; only the '"$root"' break-out interpolates.
-  diff_pass='Before reporting done, run the deterministic diff pass over your committed branch and report what it printed: `git diff <default-branch>...HEAD | '"$root"'/bin/fm-diff-assert.sh --diff - --claim change --note "{your one-line summary}"` (use `--claim no-change` when you deliberately changed nothing). It asserts diff facts only - it is not a gate, it blocks nothing, and it replaces no existing authority.'
+  # The pass is only as good as its base, and the authoritative base is the one
+  # `bin/fm-review-diff.sh` resolves: pooled project clones never freshen their
+  # local default branch, so a remote-backed project compares against a freshly
+  # fetched `origin/<default>` while a local-only project has no remote and
+  # compares against the local `<default>` it rebases onto. A stale local
+  # default branch moves the merge base back, which would make the pass report
+  # files, hunks and line counts from commits the worker never wrote.
+  local diff_base diff_base_rule diff_pass
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backtick-wrapped command is literal brief text that must reach the reading agent verbatim.
+  case "$mode" in
+    local-only)
+      diff_base='git diff <default-branch>...HEAD'
+      diff_base_rule='This project is local-only, so the authoritative base is the local `<default-branch>` you rebase onto - the same base `bin/fm-review-diff.sh` resolves for a project with no remote.'
+      ;;
+    *)
+      diff_base='git fetch origin <default-branch> && git diff origin/<default-branch>...HEAD'
+      diff_base_rule='Fetch first and diff against `origin/<default-branch>`, never the local one: pooled project clones do not keep their local default branch current, and a stale base moves the merge base back so the pass reports files, hunks and line counts from commits you never wrote. This is the same base rule `bin/fm-review-diff.sh` follows for a remote-backed project.'
+      ;;
+  esac
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backtick-wrapped command is literal brief text that must reach the reading agent verbatim; only the interpolations break out.
+  diff_pass='Before reporting done, run the deterministic diff pass over your committed branch and report what it printed: `'"$diff_base"' | '"$root"'/bin/fm-diff-assert.sh --diff - --claim change --note "{your one-line summary}"` (use `--claim no-change` when you deliberately changed nothing). '"$diff_base_rule"' It asserts diff facts only - it is not a gate, it blocks nothing, and it replaces no existing authority.'
   case "$mode" in
     direct-PR)
       cat <<EOF

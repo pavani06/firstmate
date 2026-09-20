@@ -401,6 +401,23 @@ test_dod_renders_deterministic_diff_pass() {
       "$brief" "$mode: DOD diff pass lost its explicit antecedent"
     assert_no_grep "Before that, run the deterministic diff pass" "$brief" \
       "$mode: DOD diff pass still opens on an ambiguous antecedent"
+    # A pooled clone's local default branch goes stale, so the base has to be
+    # the authoritative one bin/fm-review-diff.sh resolves per delivery mode:
+    # a fetched origin/<default> where there is a remote, the local default
+    # branch where there is none.
+    if [ "$mode" = local-only ]; then
+      assert_grep '`git diff <default-branch>...HEAD |' "$brief" \
+        "$mode: DOD diff pass must compare against the local default branch"
+      assert_no_grep 'origin/<default-branch>' "$brief" \
+        "$mode: DOD diff pass names a remote base in a project with no remote"
+    else
+      assert_grep '`git fetch origin <default-branch> && git diff origin/<default-branch>...HEAD |' \
+        "$brief" "$mode: DOD diff pass must fetch and compare against origin/<default-branch>"
+      assert_no_grep '`git diff <default-branch>...HEAD' "$brief" \
+        "$mode: DOD diff pass still compares against the stale local default branch"
+    fi
+    assert_grep "bin/fm-review-diff.sh" "$brief" \
+      "$mode: DOD diff pass lost the pointer to the authoritative base rule"
   done
   pass "fm-brief.sh: every delivery mode renders the deterministic diff pass"
 }
