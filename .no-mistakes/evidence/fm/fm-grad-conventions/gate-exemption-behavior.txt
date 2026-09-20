@@ -1,0 +1,18 @@
+# Fixed-shape gate exemption, driven through bin/fm-inactive-reconcile.sh
+# Two inactive children, neither carrying meta pr=, so the delivered PR can only come
+# from the anchored scrape of the terminal status line.
+
+child gatechild   status: done [at=1758387600]: PR https://example.test/owner/repo/pull/12 checks green
+child labeledchild status: done [at=1758387600]: verified - PR https://example.test/owner/repo/pull/12 checks green
+
+reconcile exit=0
+
+--- parent channel (/tmp/fm-evconv-gate.C5eaOw/world/main/state/mate.status) ---
+working: delegated scope
+done [key=child-outcome-gatechild-done-ec932aeb] [at=1789938973]: child gatechild done: PR https://example.test/owner/repo/pull/12 checks green pr=https://example.test/owner/repo/pull/12 mode=no-mistakes yolo=off
+done [key=child-outcome-labeledchild-done-3cf3839f] [at=1789938973]: child labeledchild done: verified - PR https://example.test/owner/repo/pull/12 checks green mode=no-mistakes yolo=off
+
+# Reading: the byte-exact no-mistakes gate publishes pr=<url> to the parent channel.
+# The same line with an evidence label inserted after the state verb loses pr= entirely,
+# which is the breakage SKILL.md now forbids. The machine-written parent line itself
+# carries no label, matching the protocol-line carve-out.

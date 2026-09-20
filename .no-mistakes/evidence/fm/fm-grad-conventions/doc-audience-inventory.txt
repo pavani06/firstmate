@@ -1,0 +1,9 @@
+# docs/documentation-audiences.json consumer: bin/fm-doc-audience-check.sh
+
+$ bin/fm-doc-audience-check.sh   # with the new skill classified
+fm-doc-audience-check: ok surfaces=103 local_links=437
+exit=0
+
+$ bin/fm-doc-audience-check.sh --inventory <inventory with the entry removed>
+fm-doc-audience-check: unclassified: .agents/skills/evidence-conventions/SKILL.md
+exit=1

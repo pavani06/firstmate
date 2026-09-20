@@ -1,0 +1,35 @@
+# Evidence labels ride in the free text and change no classification
+# Driven against bin/fm-classify-lib.sh (the parser the skill promises not to touch).
+
+== unlabelled vs labelled completion claims ==
+line:     done [at=1758387600]: implemented the retry backoff
+  verb=done terminal=yes captain_relevant=yes
+  note=implemented the retry backoff
+line:     done [at=1758387600]: reported done - implemented the retry backoff
+  verb=done terminal=yes captain_relevant=yes
+  note=reported done - implemented the retry backoff
+line:     done [at=1758387600]: verified - retry backoff, 12/12 runs green
+  verb=done terminal=yes captain_relevant=yes
+  note=verified - retry backoff, 12/12 runs green
+
+== labelled failure / blocked / paused claims ==
+line:     failed [at=1758387600]: not run - could not build the fixture
+  verb=failed terminal=yes captain_relevant=yes
+  note=not run - could not build the fixture
+line:     blocked [at=1758387600]: not run - forge credentials missing
+  verb=blocked terminal=yes captain_relevant=yes
+  note=not run - forge credentials missing
+line:     paused [at=1758387600]: reported done - awaiting CI until 2026-09-20T22:00Z
+  verb=paused terminal=no captain_relevant=no
+  note=reported done - awaiting CI until 2026-09-20T22:00Z
+
+== keyed decision open/close with labels in the note ==
+open after needs-decision: [nm-1-review	needs-decision	not run - ask-user findings file=/tmp/f.txt]
+open after keyed resolved:  []
+current terminal line: done [at=1758387603]: verified - PR https://example.test/o/r/pull/9 checks green
+
+# paused 'until' parsing with a label present
+line: paused [at=1758387600]: awaiting CI until 2026-09-20T22:00Z
+  is_paused=yes until_epoch=1789941600
+line: paused [at=1758387600]: not run - awaiting CI until 2026-09-20T22:00Z
+  is_paused=yes until_epoch=1789941600

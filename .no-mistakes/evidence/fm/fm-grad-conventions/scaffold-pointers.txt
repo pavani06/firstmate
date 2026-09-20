@@ -1,0 +1,24 @@
+# Scaffold pointers rendered by bin/fm-brief.sh (isolated FM_HOME, FM_ROOT_OVERRIDE=worktree)
+
+## evconv-ship
+33:   Completion, verification, bug-verdict, and measurement claims in status lines, reports, and PR descriptions follow `/home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M309FQXVE00VMFA916JRFSE8/.agents/skills/evidence-conventions/SKILL.md`; read it before writing them.
+
+## evconv-scout
+29:   Completion, verification, bug-verdict, and measurement claims in status lines and reports follow `/home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M309FQXVE00VMFA916JRFSE8/.agents/skills/evidence-conventions/SKILL.md`; read it before writing them.
+
+## evconv-charter
+52:Completion, verification, bug-verdict, and measurement claims in parent-channel lines and reports follow `evidence-conventions` in this home's `.agents/skills/`; read it before writing them.
+
+## the absolute pointer a ship/scout worker resolves
+$ head -6 /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M309FQXVE00VMFA916JRFSE8/.agents/skills/evidence-conventions/SKILL.md
+---
+name: evidence-conventions
+description: >-
+  Agent-only reference for the fleet's evidence conventions, graduated from pavani06/fleet-lab DEC-004..007.
+  Single owner of the evidence-state vocabulary (reported done / verified / not run), the bug-verdict taxonomy (verified / partial / failed), and the measurement-honesty rule (every number cites its command and raw output).
+  Load before writing or reading worker status lines, reports, or PR descriptions that claim completion, verification, bug verdicts, or measurements.
+
+## fixed-shape done gates the same scaffolds dictate (per mode)
+mode=no-mistakes -> done [at=<epoch>]: PR {url} checks green
+mode=direct-PR -> done [at=<epoch>]: PR {url}
+mode=local-only -> done [at=<epoch>]: ready in branch fm/evconv-local-only
