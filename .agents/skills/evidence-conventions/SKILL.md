@@ -37,6 +37,7 @@ Fixed-shape gate lines are the exception: a scaffold that dictates a line byte-f
 Never add a label inside such a line, and never read its missing label as `not run`; what the line asserts comes from the gate itself.
 The no-mistakes gate `done [at=<epoch>]: PR {url} checks green` is a `verified`-class claim whose cited evidence is the pipeline's green CI.
 The direct-PR gate `done [at=<epoch>]: PR {url}` and the local-only gate `done [at=<epoch>]: ready in branch fm/<id>` are equally fixed-shape and equally label-exempt, but they assert no verification: their verification happens at the configured merge authority before the work lands.
+The no-mistakes hand-off line `done [at=<epoch>]: {summary}` is not a fixed-shape gate - its summary is free text - so it carries a label like any other completion claim.
 
 ## Bug verdicts
 
