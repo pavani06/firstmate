@@ -605,22 +605,25 @@ out=$(bash "$REVIEW" --diff "$TMP_ROOT/hunkless.diff" --claim change --max-files
   && code=0 || code=$?
 expect_code 0 "$code" "a rename, binary and mode-only diff is a change"
 assert_contains "$out" "COVERAGE (hunks=0)" "a hunkless diff reports no hunks"
-assert_contains "$out" "state/moved.env - renamed, no hunk" \
-  "the renamed file is listed under its marker"
+assert_contains "$out" "state/secret.env -> state/moved.env - renamed, no hunk" \
+  "the rename is listed under its marker with both paths"
 assert_contains "$out" "assets/logo.png - binary, no hunk" \
   "the binary file is listed under its marker"
 assert_contains "$out" "run.sh - mode change, no hunk" \
   "the mode-changed file is listed under its marker"
 
-# Independent check that every file git named reaches the skeleton.
+# Independent check that every path git named reaches the skeleton. The
+# expected set comes from git's own name-status, not from re-deriving the
+# header rule this script implements; a rename contributes both of its paths.
 missing=''
 while IFS= read -r path; do
+  [ -n "$path" ] || continue
   case "$out" in
     *"$path"*) ;;
     *) missing="$missing $path" ;;
   esac
-done < <(grep '^diff --git ' "$TMP_ROOT/hunkless.diff" | sed 's|^diff --git a/.* b/||')
-assert_equals '' "$missing" "every changed file of the fixture appears in the skeleton"
+done < <(git -C "$HUNKLESS_REPO" diff --cached -M --name-status | cut -f2- | tr '\t' '\n')
+assert_equals '' "$missing" "every changed path of the fixture appears in the skeleton"
 
 # A file with hunks keeps its line ranges and gains no marker line.
 out=$(bash "$REVIEW" --diff "$REAL_DIFF" --max-files 5) && code=0 || code=$?
@@ -751,6 +754,76 @@ write_diff "$SPACE_NOPREFIX_DIFF" \
 out=$(bash "$REVIEW" --diff "$SPACE_NOPREFIX_DIFF" --forbid-path 'a b/') && code=0 || code=$?
 expect_code 1 "$code" "a prefix-less header with a spaced directory still resolves"
 assert_contains "$out" "forbidden path touched: 'a b/x'" "the prefix-less spaced path is exact"
+
+# --- a rename touches both of its paths -------------------------------------
+
+# Moving a file out of a guarded directory is a touch of that directory, so the
+# source path has to reach the path assertions and the coverage skeleton.
+RENAME_REPO="$TMP_ROOT/rename-repo"
+mkdir -p "$RENAME_REPO"
+(
+  cd "$RENAME_REPO" || exit 1
+  git init -q .
+  git config user.email crew@example.test
+  git config user.name crew
+  mkdir -p state docs
+  printf 'k=v\nl=2\nm=3\nn=4\no=5\n' > state/secret.env
+  git add -A
+  git commit -qm init
+  git mv state/secret.env docs/secret.env
+  git add -A
+  git diff --cached -M > "$TMP_ROOT/rename-pure.diff"
+  printf 'k=v\nl=2\nm=3\nn=4\no=CHANGED\n' > docs/secret.env
+  git add -A
+  git diff --cached -M > "$TMP_ROOT/rename-edited.diff"
+) > /dev/null 2>&1
+
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/rename-pure.diff" --forbid-path state/) \
+  && code=0 || code=$?
+expect_code 1 "$code" "moving a file out of a forbidden prefix fails"
+assert_contains "$out" "forbidden path touched: 'state/secret.env'" \
+  "the rename source names the forbidden path"
+assert_contains "$out" "state/secret.env -> docs/secret.env - renamed, no hunk" \
+  "the coverage entry names both sides of the rename"
+
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/rename-pure.diff" --allow-path docs/) \
+  && code=0 || code=$?
+expect_code 1 "$code" "a rename out of the allowed prefixes fails"
+assert_contains "$out" "outside allowed paths: 'state/secret.env'" \
+  "the rename source is the file outside the allowed prefixes"
+
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/rename-pure.diff" --allow-path docs/ --allow-path state/) \
+  && code=0 || code=$?
+expect_code 0 "$code" "a rename passes when both of its sides are allowed"
+
+# The destination still trips the guards on its own.
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/rename-pure.diff" --forbid-path docs/) \
+  && code=0 || code=$?
+expect_code 1 "$code" "the rename destination still trips --forbid-path"
+
+# A rename carrying edits has hunks, so its source must reach coverage there too.
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/rename-edited.diff" --forbid-path state/) \
+  && code=0 || code=$?
+expect_code 1 "$code" "a rename with edits still fails --forbid-path on its source"
+assert_contains "$out" "state/secret.env -> docs/secret.env @@" \
+  "a hunk of a renamed file is anchored to both sides"
+
+# The file limit still counts one changed file per diff --git stanza.
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/rename-pure.diff" --max-files 1) && code=0 || code=$?
+expect_code 0 "$code" "a rename counts as one changed file"
+assert_contains "$out" "PASS (files=1," "a rename reports one changed file"
+
+# Git C-quotes a rename line whose path needs escaping, like any other field.
+QUOTED_RENAME_DIFF="$TMP_ROOT/quoted-rename-src.diff"
+write_diff "$QUOTED_RENAME_DIFF" \
+  'diff --git "a/state/caf\303\251.env" "b/docs/caf\303\251.env"' \
+  'similarity index 100%' \
+  'rename from "state/caf\303\251.env"' \
+  'rename to "docs/caf\303\251.env"'
+out=$(bash "$REVIEW" --diff "$QUOTED_RENAME_DIFF" --forbid-path state/) && code=0 || code=$?
+expect_code 1 "$code" "a C-quoted rename source still trips --forbid-path"
+assert_contains "$out" "forbidden path touched: 'state/caf\303\251.env'" \
+  "the C-quoted rename source is unquoted before matching"
 
 # --- forbidden paths --------------------------------------------------------
 

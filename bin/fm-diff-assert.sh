@@ -9,7 +9,8 @@
 # always receives the full line-anchored surface it has to cover. A changed
 # file that carries no hunk at all - a rename, a mode change, a binary
 # rewrite - is listed under its structural markers instead, so no touched file
-# is missing from that surface.
+# is missing from that surface. A rename is listed as `<from> -> <to>`, because
+# both of its paths were touched.
 #
 # The assertions are pure text functions (no model, no network, no
 # randomness), reported as one readable PASS/FAIL verdict:
@@ -214,6 +215,11 @@ fi
 # evidence measured - 12/12 detection with 0 false positives - and not to the
 # mechanism that produced it, so the byte test is gone.
 #
+# A rename changes two paths, and both are the changed file: the destination
+# from the header, and the source from the stanza's `rename from` line. Moving
+# a file out of a directory is a touch of that directory, so both sides enter
+# the path assertions and the coverage skeleton.
+#
 # File headers are read in the two spellings git writes, and only those:
 #   - `diff --git a/X b/Y` yields the b/ (new) path; the first ` b/` splits,
 #     matching the Python regex's non-greedy a/ group, and both paths must be
@@ -250,6 +256,19 @@ EXCLUDE_SEEN=()
 # `notes.md b/state b/secret.env` equally well. Nothing in the header decides
 # between them, so a second ` b/` makes the header unresolvable rather than
 # letting the first one win and inventing a path.
+# Remove a surrounding C-quote pair from one header field, leaving the escapes
+# inside it exactly as git wrote them.
+unquote_field() {  # <field>
+  local field=$1
+  case "$field" in
+    '"'*'"')
+      field=${field#'"'}
+      field=${field%'"'}
+      ;;
+  esac
+  printf '%s' "$field"
+}
+
 header_path() {  # <text after 'diff --git '>
   local rest=$1 first second half
   case "$rest" in
@@ -268,13 +287,7 @@ header_path() {  # <text after 'diff --git '>
       ;;
   esac
   if [ -n "$first" ]; then
-    case "$second" in
-      '"'*'"')
-        second=${second#'"'}
-        second=${second%'"'}
-        ;;
-    esac
-    rest="$first $second"
+    rest="$first $(unquote_field "$second")"
   fi
 
   case "$rest" in
@@ -313,7 +326,7 @@ flush_stanza() {
 
 parse_diff() {
   local line rest ranges body in_hunk=0 current='(unknown file)' i
-  local stanza_file='' stanza_hunks=0 stanza_markers=''
+  local stanza_file='' stanza_hunks=0 stanza_markers='' stanza_from=''
   local nreq=${#REQUIRE[@]} nexc=${#EXCLUDE[@]}
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
@@ -332,6 +345,7 @@ parse_diff() {
         stanza_file=$current
         stanza_hunks=0
         stanza_markers=''
+        stanza_from=''
         ;;
       'new file mode '?*)
         STRUCTURAL=1
@@ -341,7 +355,14 @@ parse_diff() {
         STRUCTURAL=1
         add_marker deleted
         ;;
-      'rename from '?* | 'rename to '?*)
+      'rename from '?*)
+        STRUCTURAL=1
+        add_marker renamed
+        stanza_from=$(unquote_field "${line#'rename from '}")
+        CHANGED_FILES+=("$stanza_from")
+        stanza_file="$stanza_from -> $current"
+        ;;
+      'rename to '?*)
         STRUCTURAL=1
         add_marker renamed
         ;;
@@ -357,7 +378,7 @@ parse_diff() {
         in_hunk=1
         ranges=${line#'@@ '}
         ranges=${ranges%%' @@'*}
-        COVERAGE="${COVERAGE}  $current @@ $ranges @@"$'\n'
+        COVERAGE="${COVERAGE}  $stanza_file @@ $ranges @@"$'\n'
         HUNK_COUNT=$((HUNK_COUNT + 1))
         stanza_hunks=$((stanza_hunks + 1))
         ;;

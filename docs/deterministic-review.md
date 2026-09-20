@@ -30,7 +30,7 @@ A changed file that carries no hunk at all is listed under its structural marker
 
 ```
 COVERAGE (hunks=0)
-  state/moved.env - renamed, no hunk
+  state/secret.env -> state/moved.env - renamed, no hunk
   assets/logo.png - binary, no hunk
   run.sh - mode change, no hunk
 ```
@@ -66,6 +66,10 @@ A stanza that is only `---`/`+++` header lines, or a bare `+` outside any hunk, 
 A line is content only inside a hunk body, which opens at each `@@` header and closes at the next `diff --git`.
 Inside one, every line starting with `+` or `-` is content whatever follows that marker, so `++API_KEY = "sk-..."` and a deleted `- ` list item are counted and searched like any other line.
 The lab source instead required the second byte to differ from the marker, which hid both; the property that evidence measured is what this port keeps, not the mechanism that produced it.
+
+A rename changes two paths, and both count as the changed file: the destination from the header, and the source from the stanza's `rename from` line.
+Moving a file out of a directory is a touch of that directory, so `--forbid-path state/` fails on `git mv state/secret.env docs/secret.env` and the coverage block lists the stanza as `state/secret.env -> docs/secret.env`.
+The file limit is unaffected: `--max-files` still counts one changed file per `diff --git` stanza.
 
 File headers are read in the two spellings git writes, and only those: `diff --git a/X b/Y`, and the prefix-less `diff --git X X` that `--no-prefix` or `diff.noprefix=true` produces for a non-rename, accepted only when its two fields are byte-identical.
 Git C-quotes a field whose path needs escaping, independently per field (`diff --git a/plain.md "b/caf\303\251.md"`), so a surrounding quote pair is removed from either or both fields before those two spellings are tested.
