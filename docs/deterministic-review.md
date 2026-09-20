@@ -1,7 +1,7 @@
 # Deterministic diff review layer
 
 Fleet PR review has a deterministic, LLM-free layer that asserts structural properties of a task diff before or alongside agent reasoning, and hands the reviewer a line-anchored map of everything the diff touches.
-It catches the two signature coding-agent failure modes, claim-without-diff and no-op-with-diff, plus four diff-shape guards over text, paths and size, at zero token cost and with fully reproducible verdicts.
+It catches the two signature coding-agent failure modes, claim-without-diff and no-op-with-diff, plus five diff-shape guards over text, paths and size, at zero token cost and with fully reproducible verdicts.
 The script is `bin/fm-diff-assert.sh`; its header and `--help` own the exact flags and parsing semantics.
 This layer is optional: the no-mistakes pipeline stays the owner of validation, and merge authority is unchanged.
 
