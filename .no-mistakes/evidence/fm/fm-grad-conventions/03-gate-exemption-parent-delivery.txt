@@ -1,0 +1,21 @@
+# Adversarial: does the skill's fixed-shape gate exemption matter?
+# Real path driven: bin/fm-inactive-reconcile.sh scan in a bound secondmate home,
+# child meta with NO recorded pr=, so the PR must be recovered from the worker's own
+# terminal gate line (the anchored scrape at bin/fm-inactive-reconcile.sh:327).
+
+##### A: gate written byte-exact, as the scaffold spells it and the skill requires
+--- worker wrote to the child status ledger:
+done [at=1758387600]: PR https://github.com/o/r/pull/12 checks green
+--- parent channel line firstmate receives:
+done [key=child-outcome-child-done-febd875f] [at=1789940592]: child child done: PR https://github.com/o/r/pull/12 checks green pr=https://github.com/o/r/pull/12 mode=no-mistakes yolo=off
+
+##### B: an evidence label inserted into that fixed-shape gate (what the skill forbids)
+--- worker wrote to the child status ledger:
+done [at=1758387600]: verified - PR https://github.com/o/r/pull/12 checks green
+--- parent channel line firstmate receives:
+done [key=child-outcome-child-done-d6d1be39] [at=1789940594]: child child done: verified - PR https://github.com/o/r/pull/12 checks green mode=no-mistakes yolo=off
+
+Result: A carries pr=https://github.com/o/r/pull/12 to firstmate; B silently drops it.
+The skill's 'never add a label inside such a line' rule is what keeps A from becoming B.
+Note also that the parent line firstmate receives is itself machine-emitted and unlabeled,
+which is exactly the carve-out the skill states (never read as 'not run').

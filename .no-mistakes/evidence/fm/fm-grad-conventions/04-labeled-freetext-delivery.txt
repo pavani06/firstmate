@@ -1,0 +1,13 @@
+# The labeled free-text hand-off line the skill DOES require still delivers normally
+# (no-mistakes hand-off gate 'done [at=<epoch>]: {summary}', summary is free text)
+
+--- worker wrote to the child status ledger:
+done [at=1758387600]: reported done - retry cap implemented, no-mistakes not started
+--- parent channel line firstmate receives:
+done [key=child-outcome-child-done-0c4913a1] [at=1789940607]: child child done: reported done - retry cap implemented, no-mistakes not started mode=no-mistakes yolo=off
+
+# And the labeled failure claim the skill maps to a bug verdict of failed
+--- worker wrote to the child status ledger:
+failed [at=1758387600]: not run - reproduction never executed
+--- parent channel line firstmate receives:
+failed [key=child-outcome-child-failed-bdfb337f] [at=1789940608]: child child failed: not run - reproduction never executed mode=no-mistakes yolo=off

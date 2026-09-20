@@ -1,0 +1,19 @@
+# Scaffolded briefs point every worker at the evidence-conventions owner
+# (bin/fm-brief.sh run against an isolated FM_HOME at /tmp/fm-evconv.M5Qm9E/home)
+
+== demo-ship (ship) ==
+33:   Completion, verification, bug-verdict, and measurement claims in status lines, reports, and PR descriptions follow `/home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30BEMX7YPFSF2YWW59ERVPD/.agents/skills/evidence-conventions/SKILL.md`; read it before writing them.
+
+== demo-scout (scout) ==
+29:   Completion, verification, bug-verdict, and measurement claims in status lines and reports follow `/home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30BEMX7YPFSF2YWW59ERVPD/.agents/skills/evidence-conventions/SKILL.md`; read it before writing them.
+
+== demo-charter (secondmate charter) ==
+52:Completion, verification, bug-verdict, and measurement claims in parent-channel lines and reports follow `evidence-conventions` in this home's `.agents/skills/`; read it before writing them.
+
+== the absolute path the ship brief hands the worker actually opens ==
+$ head -3 /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30BEMX7YPFSF2YWW59ERVPD/.agents/skills/evidence-conventions/SKILL.md
+---
+name: evidence-conventions
+description: >-
+$ grep -n '^# evidence-conventions' <path>
+12:# evidence-conventions

@@ -1,0 +1,22 @@
+# Every non-captain-invocable skill trigger listed in the seeded home's AGENTS.md
+# must resolve to a skill that exists in that same home.
+# home: /tmp/fm-evconv.M5Qm9E/sm-home
+
+OK  bootstrap-diagnostics              .agents/skills/bootstrap-diagnostics/SKILL.md
+OK  diagnostic-reasoning               .agents/skills/diagnostic-reasoning/SKILL.md
+OK  evidence-conventions               .agents/skills/evidence-conventions/SKILL.md
+OK  ask-user-authority                 .agents/skills/ask-user-authority/SKILL.md
+OK  quota-array-dispatch               .agents/skills/quota-array-dispatch/SKILL.md
+OK  harness-adapters                   .agents/skills/harness-adapters/SKILL.md
+OK  firstmate-orca                     .agents/skills/firstmate-orca/SKILL.md
+OK  project-management                 .agents/skills/project-management/SKILL.md
+OK  stuck-crewmate-recovery            .agents/skills/stuck-crewmate-recovery/SKILL.md
+OK  secondmate-provisioning            .agents/skills/secondmate-provisioning/SKILL.md
+OK  captain-hold-lifecycle             .agents/skills/captain-hold-lifecycle/SKILL.md
+OK  process-event-sources              .agents/skills/process-event-sources/SKILL.md
+OK  fmx-respond                        .agents/skills/fmx-respond/SKILL.md
+OK  firstmate-codexapp                 .agents/skills/firstmate-codexapp/SKILL.md
+OK  firstmate-coding-guidelines        .agents/skills/firstmate-coding-guidelines/SKILL.md
+
+triggers=15 missing=0
+evidence-conventions listed: True

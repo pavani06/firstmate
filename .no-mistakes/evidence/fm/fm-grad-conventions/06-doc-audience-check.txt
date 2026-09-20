@@ -1,0 +1,9 @@
+# The documentation-audiences entry is consumed by the real checker
+$ bin/fm-doc-audience-check.sh
+fm-doc-audience-check: ok surfaces=103 local_links=437
+exit=0
+
+# Adversarial: same checker with the new skill's entry removed from the inventory
+$ bin/fm-doc-audience-check.sh --inventory <inventory-without-the-entry>
+fm-doc-audience-check: unclassified: .agents/skills/evidence-conventions/SKILL.md
+exit=1

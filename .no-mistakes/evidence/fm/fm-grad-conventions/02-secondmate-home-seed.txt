@@ -1,0 +1,16 @@
+# A seeded secondmate home resolves the charter's relative pointer
+# bin/fm-home-seed.sh demo-sm <home> --no-projects  (FM_SECONDMATE_CHARTER set)
+
+== charter the secondmate reads (data/charter.md in its own home) ==
+52:Completion, verification, bug-verdict, and measurement claims in parent-channel lines and reports follow `evidence-conventions` in this home's `.agents/skills/`; read it before writing them.
+
+== 'this home's .agents/skills/' in the seeded home ==
+total 8
+-rw-rw-r-- 1 pavanpavan pavanpavan 5826 Sep 20 18:36 SKILL.md
+
+== first lines of that copy ==
+# evidence-conventions
+
+Authority: these conventions were approved in the pavani06/fleet-lab lab (decisions DEC-004, DEC-005, and DEC-006, plus validator decision DEC-007, 2026-09-20) and graduated to fleet-wide operating norms by the captain.
+This skill is the single owner of their substance; briefs, status scaffolds, and `AGENTS.md` carry only trigger pointers back here.
+The conventions govern claims, not mechanisms: they grade what an agent asserts, and no parser or state machine changes because of them.

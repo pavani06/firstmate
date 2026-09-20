@@ -1,0 +1,15 @@
+# 'no parser or state machine changes because of them' - checked against the real classifier
+
+unlabeled vs. evidence-labeled status lines, read by bin/fm-classify-lib.sh
+
+done [at=1758387600]: shipped the retry fix                                    verb=done           terminal=yes captain-relevant=yes note=shipped the retry fix
+done [at=1758387600]: reported done - shipped the retry fix                    verb=done           terminal=yes captain-relevant=yes note=reported done - shipped the retry fix
+done [at=1758387600]: verified - shipped the retry fix, 12/12 cases pass       verb=done           terminal=yes captain-relevant=yes note=verified - shipped the retry fix, 12/12 cases pass
+failed [at=1758387600]: fix did not hold                                       verb=failed         terminal=yes captain-relevant=yes note=fix did not hold
+failed [at=1758387600]: not run - fix did not hold                             verb=failed         terminal=yes captain-relevant=yes note=not run - fix did not hold
+needs-decision [at=1758387600]: pick retry budget                              verb=needs-decision terminal=yes captain-relevant=yes note=pick retry budget
+needs-decision [at=1758387600]: reported done - pick retry budget              verb=needs-decision terminal=yes captain-relevant=yes note=reported done - pick retry budget
+working [at=1758387600]: not run - benchmark still queued                      verb=working        terminal=no  captain-relevant=no  note=not run - benchmark still queued
+
+# keyed open-decision fold, unlabeled vs labeled (bin/fm-classify-lib.sh status_open_decisions)
+unlabeled: retry-budget	needs-decision	retry budget needs a caplabeled  : retry-budget	needs-decision	retry budget needs a cap
