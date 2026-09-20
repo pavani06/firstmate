@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # tests/fm-diff-review.test.sh - behavior tests for bin/fm-diff-review.sh.
 #
-# The script is a pure port of the fleet-lab deterministic graders
-# (pavani06/fleet-lab DEC-002a), so these cases pin the validated semantics:
-# claim consistency in both directions, negative-phrase precedence, forbidden
-# path prefixes, the changed-file limit, exact diff-parsing edge cases, and
-# the CLI contract (stdin input, exit codes, usage errors).
+# The script ports the fleet-lab deterministic graders (pavani06/fleet-lab
+# DEC-002a), so these cases pin the validated semantics: claim consistency in
+# both directions, negative-phrase precedence, word-boundary classification,
+# forbidden path prefixes, the changed-file limit, exact diff-parsing edge
+# cases, the line-anchored coverage skeleton, and the CLI contract (stdin
+# input, exit codes, usage errors).
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -69,6 +70,34 @@ expect_code 1 "$code" "negative phrases outrank positive ones"
 # Case-insensitive classification.
 out=$(bash "$REVIEW" --diff "$EMPTY_DIFF" --claim "FIXED it") && code=0 || code=$?
 expect_code 1 "$code" "claim classification is case-insensitive"
+
+# Classification matches whole words, so a change verb embedded in an unrelated
+# word is not a change claim: the layer's value rests on zero false positives.
+for claim in \
+  "the upstream ticket is still unresolved" \
+  "investigated the prefix parser only" \
+  "audited the dispatch table"; do
+  out=$(bash "$REVIEW" --diff "$EMPTY_DIFF" --claim "$claim") && code=0 || code=$?
+  expect_code 0 "$code" "embedded verb is not a change claim: $claim"
+done
+
+# An explicit negation classifies the claim even when a positive word appears
+# in it, including with a modifier between the negation and its noun.
+out=$(bash "$REVIEW" --diff "$EMPTY_DIFF" \
+  --claim "checked the dispatch table; no code change was warranted") \
+  && code=0 || code=$?
+expect_code 0 "$code" "negated change claim over empty diff passes"
+
+out=$(bash "$REVIEW" --diff "$REAL_DIFF" \
+  --claim "checked the dispatch table; no code change was warranted") \
+  && code=0 || code=$?
+expect_code 1 "$code" "negated change claim over real diff still fails"
+
+# Inflections of a classified stem are classified too.
+for claim in "fixing the parser" "removes the stale entry" "renamed the flag"; do
+  out=$(bash "$REVIEW" --diff "$EMPTY_DIFF" --claim "$claim") && code=0 || code=$?
+  expect_code 1 "$code" "inflected change verb is a change claim: $claim"
+done
 
 # --- forbidden paths --------------------------------------------------------
 
@@ -159,6 +188,53 @@ write_diff "$REN_DIFF" \
 out=$(bash "$REVIEW" --diff "$REN_DIFF" --forbid-path new/) && code=0 || code=$?
 expect_code 1 "$code" "rename is tracked under its b/ path"
 
+# --- line-anchored coverage skeleton ----------------------------------------
+
+# Every hunk of the diff is enumerated with its file and @@ line ranges, so a
+# reviewing agent receives the whole line-anchored surface it has to cover.
+HUNKS_DIFF="$TMP_ROOT/hunks.diff"
+write_diff "$HUNKS_DIFF" \
+  'diff --git a/bin/one.sh b/bin/one.sh' \
+  '--- a/bin/one.sh' \
+  '+++ b/bin/one.sh' \
+  '@@ -1,2 +1,3 @@ func_a()' \
+  ' ctx' \
+  '+added' \
+  '@@ -40,6 +41,6 @@' \
+  '-gone' \
+  '+back' \
+  'diff --git a/docs/two.md b/docs/two.md' \
+  '--- a/docs/two.md' \
+  '+++ b/docs/two.md' \
+  '@@ -7 +7,2 @@' \
+  '+line'
+
+out=$(bash "$REVIEW" --diff "$HUNKS_DIFF" --max-files 5) && code=0 || code=$?
+expect_code 0 "$code" "coverage skeleton run passes its assertion"
+assert_contains "$out" "COVERAGE (hunks=3)" "skeleton counts every hunk"
+assert_contains "$out" "bin/one.sh @@ -1,2 +1,3 @@" "skeleton anchors the first hunk to its file"
+assert_contains "$out" "bin/one.sh @@ -40,6 +41,6 @@" "skeleton anchors the second hunk to its file"
+assert_contains "$out" "docs/two.md @@ -7 +7,2 @@" "skeleton anchors a countless range to its file"
+
+# Independent check that no hunk of the fixture is missing from the skeleton.
+missing=''
+while IFS= read -r hunk; do
+  ranges=${hunk#'@@ '}
+  ranges=${ranges%%' @@'*}
+  case "$out" in
+    *"@@ $ranges @@"*) ;;
+    *) missing="$missing $ranges" ;;
+  esac
+done < <(grep '^@@ ' "$HUNKS_DIFF")
+assert_equals '' "$missing" "every @@ hunk of the fixture appears in the skeleton"
+
+# A diff with no hunks still reports its (empty) coverage.
+out=$(bash "$REVIEW" --diff "$REAL_DIFF" --max-files 5) && code=0 || code=$?
+assert_contains "$out" "COVERAGE (hunks=1)" "single-hunk diff reports one hunk"
+
+out=$(bash "$REVIEW" --diff "$EMPTY_DIFF" --max-files 5) && code=0 || code=$?
+assert_contains "$out" "COVERAGE (hunks=0)" "empty diff reports zero hunks"
+
 # --- CLI contract -----------------------------------------------------------
 
 out=$(printf '%s\n' 'diff --git a/x b/x' '--- a/x' '+++ b/x' '+y' \
@@ -169,6 +245,33 @@ out=$(bash "$REVIEW" --diff "$TMP_ROOT/does-not-exist.diff" --claim "fixed" 2>&1
   && code=0 || code=$?
 expect_code 2 "$code" "unreadable diff file is a usage-class error"
 assert_contains "$out" "cannot read diff file" "missing diff file names the path"
+
+# A directory is not a readable diff: reporting PASS over a diff the layer
+# never read would be a fail-open verdict.
+out=$(bash "$REVIEW" --diff "$TMP_ROOT" --forbid-path state/ 2>&1) && code=0 || code=$?
+expect_code 2 "$code" "a directory as --diff is a read error, not a PASS"
+assert_contains "$out" "cannot read diff file" "directory diff names the path"
+assert_not_contains "$out" "PASS" "directory diff never reports PASS"
+
+# An empty flag value must not silently disable the assertion it requested.
+out=$(bash "$REVIEW" --diff "$STATE_DIFF" --forbid-path '' 2>&1) && code=0 || code=$?
+expect_code 2 "$code" "empty --forbid-path value is a usage error"
+assert_not_contains "$out" "PASS" "empty --forbid-path never reports PASS"
+
+out=$(bash "$REVIEW" --diff "$STATE_DIFF" --claim '' 2>&1) && code=0 || code=$?
+expect_code 2 "$code" "empty --claim value is a usage error"
+
+out=$(bash "$REVIEW" --diff "$STATE_DIFF" --max-files '' 2>&1) && code=0 || code=$?
+expect_code 2 "$code" "empty --max-files value is a usage error"
+
+out=$(bash "$REVIEW" --diff '' --claim "fixed" 2>&1) && code=0 || code=$?
+expect_code 2 "$code" "empty --diff value is a usage error"
+
+# A final line without a trailing newline is still parsed.
+out=$(printf 'diff --git a/x b/x\n+new' | bash "$REVIEW" --diff - --claim "fixed the bug") \
+  && code=0 || code=$?
+expect_code 0 "$code" "unterminated final line is counted"
+assert_contains "$out" "PASS (files=1, +1/-0)" "unterminated final added line is counted"
 
 out=$(bash "$REVIEW" --diff "$REAL_DIFF" 2>&1) && code=0 || code=$?
 expect_code 2 "$code" "no assertions requested is a usage error"
