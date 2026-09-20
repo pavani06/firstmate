@@ -87,8 +87,9 @@ Any other prefix pair - `diff.mnemonicPrefix`'s `i/X w/X`, a custom src/dst pref
 A rename or copy stanza is the exception: its `rename to` / `copy to` line carries the destination as one unambiguous field, so the stanza resolves from its own body whatever its header spelling was, and a prefix-less or ambiguous rename is named rather than refused.
 Such a file still counts toward `--max-files`, but its path never enters prefix matching: a requested `--allow-path` or `--forbid-path` fails and names the header instead, because a path guard that cannot name its file must not clear it.
 
-Diff content carrying no `diff --git` header at all is refused outright, with exit 2 and no verdict.
-That header is also what closes the previous file's hunk body, so without it one file's `---`/`+++` lines would be counted and searched as the previous file's added content, and no file would have a name for the path assertions.
+Diff content that no file record names at all is refused outright, with exit 2 and no verdict.
+A `diff --git` header is one such record and the `Submodule <path> <old>..<new>` record above is the other, so a submodule-only diff is read normally and only content carrying neither is refused.
+A file record is also what closes the previous file's hunk body, so without one, one file's `---`/`+++` lines would be counted and searched as the previous file's added content, and no file would have a name for the path assertions.
 A partial parse of such input can only produce a verdict that is wrong in both directions, so the layer declines to give one.
 
 ## Running it
@@ -109,7 +110,7 @@ git diff main...HEAD | bin/fm-diff-assert.sh --diff - \
   --claim no-change --note "checked the dispatch table; no code change was warranted"
 ```
 
-Exit codes: 0 all assertions passed, 1 at least one failed, 2 usage error, read error, or a diff carrying content with no `diff --git` header.
+Exit codes: 0 all assertions passed, 1 at least one failed, 2 usage error, read error, or a diff carrying content that no file record names.
 At least one assertion must be requested, because a review run with nothing to assert is a caller mistake; `--note` is not an assertion.
 Every flag requires a non-empty value, because an empty one would otherwise silently disable the assertion it asked for.
 A diff the layer cannot read is a read error, never a PASS: a verdict is only worth its input.

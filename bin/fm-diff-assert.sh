@@ -74,7 +74,7 @@
 # assert is a caller mistake, and every flag requires a non-empty value,
 # because an empty one would silently disable the assertion it asked for.
 # Exit codes: 0 all assertions passed, 1 at least one failed, 2 usage error,
-# read error, or a diff carrying content with no `diff --git` header.
+# read error, or a diff carrying content that no file record names.
 set -eu
 
 usage() {
@@ -98,9 +98,9 @@ Run deterministic, LLM-free review assertions over one unified diff:
   --max-files N      fail when the diff changes more than N files
 
 A diff changes something when it has +/- content lines, a hunk, or a marker for
-a created, deleted, renamed, copied, mode-changed, binary or submodule file. A line is content only
-inside a hunk body, so the ---/+++ headers never count while a line whose own
-text starts with + or - always does.
+a created, deleted, renamed, copied, mode-changed, binary or submodule file. A
+line is content only inside a hunk body, so the ---/+++ headers never count
+while a line whose own text starts with + or - always does.
 
 --require and --exclude read added lines only, never headers, context lines or
 removed lines.
@@ -111,7 +111,8 @@ changed file with no hunk is listed under its structural markers instead.
 
 The diff is read from <file>, or from standard input when <file> is -.
 Exit codes: 0 pass, 1 failure, 2 usage error, read error, or a diff with
-content but no 'diff --git' header.
+content that no file record - a 'diff --git' header or a 'Submodule' record -
+names.
 USAGE
 }
 
@@ -242,9 +243,10 @@ fi
 # Any other prefix pair (diff.mnemonicPrefix's `i/X w/X`, a custom src/dst
 # prefix) leaves the changed file unresolvable: its path never enters prefix
 # matching, and a requested --allow-path or --forbid-path fails rather than
-# silently clearing a file it could not name. Diff content carrying no
-# `diff --git` header at all is refused outright, because there is no file to
-# resolve and no header to close the preceding hunk body.
+# silently clearing a file it could not name. Diff content that no file record
+# names - neither a `diff --git` header nor a `Submodule ` record - is refused
+# outright, because there is no file to resolve and no record to close the
+# preceding hunk body.
 #
 # A rename or copy stanza is the exception, because its `rename to` / `copy to`
 # line carries the destination as one unambiguous field. That names the file
@@ -501,10 +503,11 @@ else
   }
 fi
 
-# Every file of a git unified diff opens with its own `diff --git` header, and
-# that header is what closes the previous file's hunk body. Diff content with
-# no header at all is therefore not a shape this layer can read: the file has
-# no name for the path assertions, and one file's `---`/`+++` lines would be
+# Every file of a git unified diff opens with its own record - a `diff --git`
+# header, or the `Submodule ` record git writes for a submodule bump - and that
+# record is what closes the previous file's hunk body. Diff content that no
+# record names is therefore not a shape this layer can read: the file has no
+# name for the path assertions, and one file's `---`/`+++` lines would be
 # counted and searched as the previous file's added content. Refuse it rather
 # than return a verdict over a partial parse.
 if [ "$FILE_COUNT" -eq 0 ] \
