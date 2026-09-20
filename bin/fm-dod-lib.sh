@@ -240,8 +240,15 @@ fm_ask_user_escalation_block() {  # <data-dir> <task-id>
 EOF
 }
 
-fm_dod_block() {  # <mode> <task-id>
-  local mode=$1 id=$2
+fm_dod_block() {  # <mode> <task-id> <firstmate-root>
+  local mode=$1 id=$2 root=${3:-}
+  if [ -z "$root" ]; then
+    echo "error: fm_dod_block: firstmate root is required" >&2
+    return 1
+  fi
+  local diff_pass
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backtick-wrapped command is literal brief text that must reach the reading agent verbatim; only the '"$root"' break-out interpolates.
+  diff_pass='Before that, run the deterministic diff pass over your branch and report what it printed: `git diff <default-branch>...HEAD | '"$root"'/bin/fm-diff-assert.sh --diff - --claim change --note "{your one-line summary}"` (use `--claim no-change` when you deliberately changed nothing). It asserts diff facts only - it is not a gate, it blocks nothing, and it replaces no existing authority.'
   case "$mode" in
     direct-PR)
       cat <<EOF
@@ -249,6 +256,7 @@ fm_dod_block() {  # <mode> <task-id>
 Delivery contract: mode=direct-PR
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
+$diff_pass
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then append \`done [at=<epoch>]: PR {url}\` to the status file and stop.
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
 EOF
@@ -260,6 +268,7 @@ Delivery contract: mode=local-only
 This task ships **local-only**: no remote, no PR, no pipeline.
 The task is complete only when committed on your branch \`fm/$id\`. Do NOT push, do NOT open a PR, do NOT merge.
 Keep your branch a clean fast-forward onto the current default branch - if \`main\` has advanced, rebase onto it so the eventual merge stays a fast-forward.
+$diff_pass
 When it is implemented and committed, append \`done [at=<epoch>]: ready in branch fm/$id\` to the status file and stop.
 The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path.
 EOF
@@ -269,6 +278,7 @@ EOF
 # Definition of done
 Delivery contract: mode=no-mistakes
 The task is complete only when committed on your branch.
+$diff_pass
 When you believe it is complete, append \`done [at=<epoch>]: {summary}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
 

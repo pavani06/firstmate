@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fm-diff-review.sh - deterministic, LLM-free review assertions over one
+# fm-diff-assert.sh - deterministic, LLM-free review assertions over one
 # unified diff, plus a line-anchored coverage skeleton: the fleet's
 # deterministic diff-review layer (docs/deterministic-review.md owns the
 # flow contract).
@@ -12,8 +12,8 @@
 # randomness), reported as one readable PASS/FAIL verdict:
 #   - claim consistency: --claim change over an empty diff fails, and
 #     --claim no-change over a diff that changes anything fails
-#   - required text: every --require substring must appear in the diff
-#   - forbidden text: no --exclude substring may appear in the diff
+#   - required text: every --require substring must appear on some added line
+#   - forbidden text: no --exclude substring may appear on any added line
 #   - allowed paths: every changed file must sit under some --allow-path prefix
 #   - forbidden paths: any changed file under a --forbid-path prefix fails
 #   - file limit: more than --max-files changed files fails
@@ -36,19 +36,27 @@
 # to parse, the claim assertion is a comparison between a typed verdict and a
 # parsed diff fact, and false positives are impossible by construction.
 #
-# A diff changes something when it has +/- content lines, or when it carries a
-# structural marker that changes files without them: a rename (rename from /
-# rename to), a binary file (Binary files ... differ), or a mode change (old
-# mode / new mode).
+# A diff changes something when it has +/- content lines, when it has a hunk
+# (git writes an @@ header only for a region it found different, so a hunk whose
+# only edit is a blank line still changed the file), or when it carries a
+# structural marker that changes a file without either: a created or deleted
+# file (new file mode / deleted file mode), a rename (rename from / rename to),
+# a binary file (Binary files ... differ), or a mode change (old mode /
+# new mode).
+#
+# --require and --exclude read the added lines only, never headers, hunk
+# headers, unchanged context lines or removed lines. Matching a context line
+# would fail a diff for code it did not introduce, and matching a removed line
+# or a file header would clear a --require the change never satisfied.
 #
 # This is an optional review layer: it never replaces the no-mistakes
 # pipeline's authority over validation or the captain's merge authority.
 #
 # Usage:
-#   fm-diff-review.sh --diff <file|-> [--claim change|no-change] [--note <text>]
+#   fm-diff-assert.sh --diff <file|-> [--claim change|no-change] [--note <text>]
 #                     [--require S]... [--exclude S]... [--allow-path P]...
 #                     [--forbid-path P]... [--max-files N]
-#   fm-diff-review.sh --help
+#   fm-diff-assert.sh --help
 #
 # The diff is read from <file>, or from standard input when <file> is -.
 # At least one assertion is required, because a review run with nothing to
@@ -61,25 +69,28 @@ set -eu
 usage() {
   cat <<'USAGE'
 usage:
-  fm-diff-review.sh --diff <file|-> [--claim change|no-change] [--note <text>]
+  fm-diff-assert.sh --diff <file|-> [--claim change|no-change] [--note <text>]
                     [--require S]... [--exclude S]... [--allow-path P]...
                     [--forbid-path P]... [--max-files N]
-  fm-diff-review.sh --help
+  fm-diff-assert.sh --help
 
 Run deterministic, LLM-free review assertions over one unified diff:
   --claim change     fail when the diff changes nothing
   --claim no-change  fail when the diff changes anything
   --note <text>      free-text remark, printed in the report and never
                      interpreted; it is not an assertion
-  --require S        fail when substring S is absent from the diff (repeatable)
-  --exclude S        fail when substring S is present in the diff (repeatable)
+  --require S        fail when substring S is on no added line (repeatable)
+  --exclude S        fail when substring S is on some added line (repeatable)
   --allow-path P     fail when a changed file sits under no allowed prefix
                      (repeatable)
   --forbid-path P    fail when a changed file sits under prefix P (repeatable)
   --max-files N      fail when the diff changes more than N files
 
-A diff changes something when it has +/- content lines, or a rename, binary or
-mode-change marker.
+A diff changes something when it has +/- content lines, a hunk, or a marker for
+a created, deleted, renamed, mode-changed or binary file.
+
+--require and --exclude read added lines only, never headers, context lines or
+removed lines.
 
 Every run first prints a COVERAGE block naming each hunk of the diff with its
 file and @@ line ranges, as the line-anchored surface a reviewer must cover.
@@ -192,7 +203,8 @@ fi
 #   - any other `diff --git X Y` header yields its last field, which is the
 #     same new path git writes in the b/ position
 #   - an added line starts with one `+` followed by a non-`+` byte, so the
-#     `+++` header and a bare `+` line are never counted
+#     `+++` header and a bare `+` line are never counted; its content, with
+#     that `+` stripped, is what --require and --exclude match against
 #   - a removed line starts with one `-` followed by a non-`-` byte, so the
 #     `---` header is never counted
 # Hunk headers are `@@ <old-range> <new-range> @@`, attributed to the file
@@ -209,15 +221,9 @@ REQUIRE_SEEN=()
 EXCLUDE_SEEN=()
 
 parse_diff() {
-  local line rest ranges current='(unknown file)' i
+  local line rest ranges added current='(unknown file)' i
   local nreq=${#REQUIRE[@]} nexc=${#EXCLUDE[@]}
   while IFS= read -r line || [ -n "$line" ]; do
-    for ((i = 0; i < nreq; i++)); do
-      case "$line" in *"${REQUIRE[i]}"*) REQUIRE_SEEN[i]=1 ;; esac
-    done
-    for ((i = 0; i < nexc; i++)); do
-      case "$line" in *"${EXCLUDE[i]}"*) EXCLUDE_SEEN[i]=1 ;; esac
-    done
     case "$line" in
       'diff --git '*)
         rest=${line#'diff --git '}
@@ -229,7 +235,8 @@ parse_diff() {
         CHANGED_FILES+=("$current")
         FILE_COUNT=$((FILE_COUNT + 1))
         ;;
-      'rename from '?* | 'rename to '?* | 'old mode '?* | 'new mode '?*)
+      'new file mode '?* | 'deleted file mode '?* | 'rename from '?* \
+        | 'rename to '?* | 'old mode '?* | 'new mode '?*)
         STRUCTURAL=1
         ;;
       'Binary files '*' differ')
@@ -241,7 +248,16 @@ parse_diff() {
         COVERAGE="${COVERAGE}  $current @@ $ranges @@"$'\n'
         HUNK_COUNT=$((HUNK_COUNT + 1))
         ;;
-      '+'[!+]*) ADDED=$((ADDED + 1)) ;;
+      '+'[!+]*)
+        ADDED=$((ADDED + 1))
+        added=${line#+}
+        for ((i = 0; i < nreq; i++)); do
+          case "$added" in *"${REQUIRE[i]}"*) REQUIRE_SEEN[i]=1 ;; esac
+        done
+        for ((i = 0; i < nexc; i++)); do
+          case "$added" in *"${EXCLUDE[i]}"*) EXCLUDE_SEEN[i]=1 ;; esac
+        done
+        ;;
       '-'[!-]*) REMOVED=$((REMOVED + 1)) ;;
     esac
   done
@@ -261,34 +277,33 @@ failures=''
 
 # --- claim consistency ------------------------------------------------------
 
-if [ $((ADDED + REMOVED)) -gt 0 ] || [ "$STRUCTURAL" -eq 1 ]; then
-  DIFF_CHANGES=1
-else
-  DIFF_CHANGES=0
+CHANGE_EVIDENCE=''
+if [ $((ADDED + REMOVED)) -gt 0 ]; then
+  CHANGE_EVIDENCE="+$ADDED/-$REMOVED lines"
+elif [ "$HUNK_COUNT" -gt 0 ]; then
+  CHANGE_EVIDENCE="$HUNK_COUNT hunk(s) of changed lines"
+elif [ "$STRUCTURAL" -eq 1 ]; then
+  CHANGE_EVIDENCE='a created, deleted, renamed, mode-changed or binary file'
 fi
 
-if [ "$CLAIM" = 'change' ] && [ "$DIFF_CHANGES" -eq 0 ]; then
+if [ "$CLAIM" = 'change' ] && [ -z "$CHANGE_EVIDENCE" ]; then
   failures="${failures}  - claim is 'change' but the diff changes nothing"$'\n'
 fi
-if [ "$CLAIM" = 'no-change' ] && [ "$DIFF_CHANGES" -eq 1 ]; then
-  if [ $((ADDED + REMOVED)) -gt 0 ]; then
-    failures="${failures}  - claim is 'no-change' but the diff has +$ADDED/-$REMOVED lines"$'\n'
-  else
-    failures="${failures}  - claim is 'no-change' but the diff renames, changes the mode of, or rewrites a binary file"$'\n'
-  fi
+if [ "$CLAIM" = 'no-change' ] && [ -n "$CHANGE_EVIDENCE" ]; then
+  failures="${failures}  - claim is 'no-change' but the diff has $CHANGE_EVIDENCE"$'\n'
 fi
 
 # --- required and forbidden text --------------------------------------------
 
 for ((i = 0; i < ${#REQUIRE[@]}; i++)); do
   if [ "${REQUIRE_SEEN[i]-0}" != 1 ]; then
-    failures="${failures}  - required hunk absent: '${REQUIRE[i]}'"$'\n'
+    failures="${failures}  - required text on no added line: '${REQUIRE[i]}'"$'\n'
   fi
 done
 
 for ((i = 0; i < ${#EXCLUDE[@]}; i++)); do
   if [ "${EXCLUDE_SEEN[i]-0}" = 1 ]; then
-    failures="${failures}  - forbidden hunk present: '${EXCLUDE[i]}'"$'\n'
+    failures="${failures}  - forbidden text on an added line: '${EXCLUDE[i]}'"$'\n'
   fi
 done
 

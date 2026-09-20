@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/fm-diff-review.test.sh - behavior tests for bin/fm-diff-review.sh.
+# tests/fm-diff-assert.test.sh - behavior tests for bin/fm-diff-assert.sh.
 #
 # The script graduates the fleet-lab deterministic graders (pavani06/fleet-lab
 # DEC-002a), whose evidence is 12/12 planted synthetic failures detected with 0
@@ -12,9 +12,9 @@
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-REVIEW="$ROOT/bin/fm-diff-review.sh"
+REVIEW="$ROOT/bin/fm-diff-assert.sh"
 
-TMP_ROOT=$(fm_test_tmproot fm-diff-review)
+TMP_ROOT=$(fm_test_tmproot fm-diff-assert)
 
 # write_diff <path> <line...>: write each line into a fixture diff file.
 write_diff() {
@@ -201,10 +201,10 @@ run_case ctl_noc_change_with_diff 0 \
 # Each failure names the assertion that produced it.
 out=$(bash "$REVIEW" --diff "$TMP_ROOT/mod.diff" --require 'def c' 2>&1) && code=0 || code=$?
 expect_code 1 "$code" "absent required substring fails"
-assert_contains "$out" "required hunk absent: 'def c'" "missing --require names the substring"
+assert_contains "$out" "required text on no added line: 'def c'" "missing --require names the substring"
 
 out=$(bash "$REVIEW" --diff "$TMP_ROOT/secret.diff" --exclude 'sk-' 2>&1) && code=0 || code=$?
-assert_contains "$out" "forbidden hunk present: 'sk-'" "present --exclude names the substring"
+assert_contains "$out" "forbidden text on an added line: 'sk-'" "present --exclude names the substring"
 
 out=$(bash "$REVIEW" --diff "$TMP_ROOT/src-and-docs.diff" --allow-path 'src/' 2>&1) \
   && code=0 || code=$?
@@ -213,6 +213,42 @@ assert_contains "$out" "changed file outside allowed paths: 'docs/readme.md'" \
 
 out=$(bash "$REVIEW" --diff "$TMP_ROOT/three-files.diff" --max-files 2 2>&1) && code=0 || code=$?
 assert_contains "$out" "too many changed files: 3 > 2" "file-limit failure names the counts"
+
+# --- --require and --exclude read added lines only --------------------------
+
+# A context line carries code the change did not introduce, so matching it
+# would fail a diff for someone else's pre-existing text.
+CONTEXT_DIFF="$TMP_ROOT/context.diff"
+write_diff "$CONTEXT_DIFF" \
+  'diff --git a/worker.py b/worker.py' \
+  '--- a/worker.py' \
+  '+++ b/worker.py' \
+  '@@ -1,3 +1,3 @@' \
+  ' def run():' \
+  '     print("DEBUG: legacy trace")' \
+  '-    return 0' \
+  '+    return 1'
+
+out=$(bash "$REVIEW" --diff "$CONTEXT_DIFF" --exclude 'print("DEBUG') && code=0 || code=$?
+expect_code 0 "$code" "--exclude ignores an unchanged context line"
+
+out=$(bash "$REVIEW" --diff "$CONTEXT_DIFF" --require 'return 0') && code=0 || code=$?
+expect_code 1 "$code" "--require is not satisfied by a removed line"
+assert_contains "$out" "required text on no added line: 'return 0'" \
+  "removed-line --require failure names the substring"
+
+out=$(bash "$REVIEW" --diff "$CONTEXT_DIFF" --require 'worker.py') && code=0 || code=$?
+expect_code 1 "$code" "--require is not satisfied by a file header"
+
+out=$(bash "$REVIEW" --diff "$CONTEXT_DIFF" --require 'return 1') && code=0 || code=$?
+expect_code 0 "$code" "--require is satisfied by the added line"
+
+out=$(bash "$REVIEW" --diff "$CONTEXT_DIFF" --exclude 'return 1') && code=0 || code=$?
+expect_code 1 "$code" "--exclude trips on the added line"
+
+# The hunk header is not searchable text either.
+out=$(bash "$REVIEW" --diff "$CONTEXT_DIFF" --require '@@ -1,3') && code=0 || code=$?
+expect_code 1 "$code" "--require is not satisfied by a hunk header"
 
 # --- the typed claim carries no language ------------------------------------
 
@@ -295,7 +331,7 @@ out=$(bash "$REVIEW" --diff "$RENAME_DIFF" --claim change) && code=0 || code=$?
 expect_code 0 "$code" "a pure rename is a change"
 out=$(bash "$REVIEW" --diff "$RENAME_DIFF" --claim no-change) && code=0 || code=$?
 expect_code 1 "$code" "a pure rename contradicts a no-change claim"
-assert_contains "$out" "renames, changes the mode of, or rewrites a binary file" \
+assert_contains "$out" "a created, deleted, renamed, mode-changed or binary file" \
   "structural-only failure names what changed"
 
 BINARY_DIFF="$TMP_ROOT/binary.diff"
@@ -318,15 +354,26 @@ expect_code 0 "$code" "a mode-only change is a change"
 out=$(bash "$REVIEW" --diff "$MODE_DIFF" --claim no-change) && code=0 || code=$?
 expect_code 1 "$code" "a mode-only change contradicts a no-change claim"
 
-# A new file header is not a change marker on its own: the file's added lines
-# are what make that diff non-empty.
+# Creating or deleting a tracked file is a change even when it holds no lines.
 NEWFILE_DIFF="$TMP_ROOT/newfile-empty.diff"
 write_diff "$NEWFILE_DIFF" \
-  'diff --git a/empty.txt b/empty.txt' \
+  'diff --git a/empty.gitkeep b/empty.gitkeep' \
   'new file mode 100644' \
-  'index 000..000'
+  'index 0000000..e69de29'
+out=$(bash "$REVIEW" --diff "$NEWFILE_DIFF" --claim change) && code=0 || code=$?
+expect_code 0 "$code" "creating an empty tracked file is a change"
 out=$(bash "$REVIEW" --diff "$NEWFILE_DIFF" --claim no-change) && code=0 || code=$?
-expect_code 0 "$code" "a header-only new-file stanza changes no content"
+expect_code 1 "$code" "creating an empty tracked file contradicts a no-change claim"
+
+DELFILE_DIFF="$TMP_ROOT/delfile-empty.diff"
+write_diff "$DELFILE_DIFF" \
+  'diff --git a/empty.gitkeep b/empty.gitkeep' \
+  'deleted file mode 100644' \
+  'index e69de29..0000000'
+out=$(bash "$REVIEW" --diff "$DELFILE_DIFF" --claim change) && code=0 || code=$?
+expect_code 0 "$code" "deleting an empty tracked file is a change"
+out=$(bash "$REVIEW" --diff "$DELFILE_DIFF" --claim no-change) && code=0 || code=$?
+expect_code 1 "$code" "deleting an empty tracked file contradicts a no-change claim"
 
 # --- diff-parsing edge cases (validated Python semantics) -------------------
 
@@ -338,7 +385,40 @@ write_diff "$BARE_DIFF" \
   '+++ b/x' \
   '+'
 out=$(bash "$REVIEW" --diff "$BARE_DIFF" --claim change) && code=0 || code=$?
-expect_code 1 "$code" "bare plus line is not counted as a change"
+expect_code 1 "$code" "a bare plus outside any hunk is not counted as a change"
+
+# Git writes an @@ header only for a region it found different, so a hunk whose
+# only edit is a blank line still changed the file. Both directions matter: the
+# change claim must not be flagged, and the no-change claim must be.
+BLANK_ADD_DIFF="$TMP_ROOT/blank-add.diff"
+write_diff "$BLANK_ADD_DIFF" \
+  'diff --git a/f.txt b/f.txt' \
+  '--- a/f.txt' \
+  '+++ b/f.txt' \
+  '@@ -1,2 +1,3 @@' \
+  ' a' \
+  '+' \
+  ' b'
+out=$(bash "$REVIEW" --diff "$BLANK_ADD_DIFF" --claim change) && code=0 || code=$?
+expect_code 0 "$code" "adding a blank line is a change"
+out=$(bash "$REVIEW" --diff "$BLANK_ADD_DIFF" --claim no-change) && code=0 || code=$?
+expect_code 1 "$code" "adding a blank line contradicts a no-change claim"
+assert_contains "$out" "claim is 'no-change' but the diff has 1 hunk(s) of changed lines" \
+  "blank-line failure names the hunk evidence"
+
+BLANK_DEL_DIFF="$TMP_ROOT/blank-del.diff"
+write_diff "$BLANK_DEL_DIFF" \
+  'diff --git a/f.txt b/f.txt' \
+  '--- a/f.txt' \
+  '+++ b/f.txt' \
+  '@@ -1,3 +1,2 @@' \
+  ' a' \
+  '-' \
+  ' b'
+out=$(bash "$REVIEW" --diff "$BLANK_DEL_DIFF" --claim change) && code=0 || code=$?
+expect_code 0 "$code" "removing a blank line is a change"
+out=$(bash "$REVIEW" --diff "$BLANK_DEL_DIFF" --claim no-change) && code=0 || code=$?
+expect_code 1 "$code" "removing a blank line contradicts a no-change claim"
 
 HEADER_DIFF="$TMP_ROOT/header.diff"
 write_diff "$HEADER_DIFF" \
@@ -528,4 +608,4 @@ expect_code 2 "$code" "non-integer --max-files is a usage error"
 out=$(bash "$REVIEW" --help)
 assert_contains "$out" "usage:" "--help prints usage"
 
-pass "fm-diff-review behavior"
+pass "fm-diff-assert behavior"
