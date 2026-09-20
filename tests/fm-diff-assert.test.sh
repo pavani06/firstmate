@@ -682,6 +682,76 @@ expect_code 1 "$code" "a quoted prefix-less header still trips --forbid-path"
 assert_contains "$out" "forbidden path touched: 'state/caf\303\251.env'" \
   "the quoted prefix-less header yields its path"
 
+# --- an ambiguous a/X b/Y header is unresolvable ----------------------------
+
+# Git leaves a path containing spaces unquoted, so a directory ending in " b"
+# puts a decoy " b/" ahead of the real split point. Nothing in the header says
+# which occurrence splits it, so the path guard must not pick one and clear the
+# file against a name it invented.
+AMBIG_REPO="$TMP_ROOT/ambiguous-repo"
+mkdir -p "$AMBIG_REPO"
+(
+  cd "$AMBIG_REPO" || exit 1
+  git init -q .
+  git config user.email crew@example.test
+  git config user.name crew
+  mkdir -p 'plan b' 'state b'
+  printf 'notes\n' > 'plan b/notes.md'
+  git add -A
+  git commit -qm init
+  git mv 'plan b/notes.md' 'state b/secret.env'
+  git add -A
+  git diff --cached -M > "$TMP_ROOT/ambiguous.diff"
+) > /dev/null 2>&1
+
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/ambiguous.diff" --forbid-path 'state b/') \
+  && code=0 || code=$?
+expect_code 1 "$code" "an ambiguous rename header never clears --forbid-path"
+assert_contains "$out" "changed file unresolvable from its header" \
+  "the ambiguous header is reported as unresolvable"
+assert_not_contains "$out" "notes.md b/state b/secret.env - " \
+  "no invented path reaches the coverage skeleton"
+
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/ambiguous.diff" --allow-path 'state b/') \
+  && code=0 || code=$?
+expect_code 1 "$code" "an ambiguous rename header never clears --allow-path"
+assert_not_contains "$out" "outside allowed paths: 'notes.md b/" \
+  "an ambiguous header is not mislabelled as a stray path"
+
+# Headers carrying exactly one " b/" keep resolving, including the shapes that
+# look ambiguous but are not.
+ONE_SPLIT_DIFF="$TMP_ROOT/one-split.diff"
+write_diff "$ONE_SPLIT_DIFF" \
+  'diff --git a/b/x b/b/x' \
+  '@@ -1 +1 @@' \
+  '-o' \
+  '+n'
+out=$(bash "$REVIEW" --diff "$ONE_SPLIT_DIFF" --forbid-path 'b/') && code=0 || code=$?
+expect_code 1 "$code" "a b/-named directory still resolves"
+assert_contains "$out" "forbidden path touched: 'b/x'" "the b/ directory path is exact"
+
+SPACE_DIFF="$TMP_ROOT/space-path.diff"
+write_diff "$SPACE_DIFF" \
+  'diff --git a/my file.txt b/my file.txt' \
+  '@@ -1 +1 @@' \
+  '-o' \
+  '+n'
+out=$(bash "$REVIEW" --diff "$SPACE_DIFF" --forbid-path 'my ') && code=0 || code=$?
+expect_code 1 "$code" "an unquoted path with a space still resolves"
+assert_contains "$out" "forbidden path touched: 'my file.txt'" "the spaced path is exact"
+
+# The prefix-less spelling is matched by byte-identical fields, not by " b/",
+# so a directory named "a b" keeps resolving there.
+SPACE_NOPREFIX_DIFF="$TMP_ROOT/space-noprefix.diff"
+write_diff "$SPACE_NOPREFIX_DIFF" \
+  'diff --git a b/x a b/x' \
+  '@@ -1 +1 @@' \
+  '-o' \
+  '+n'
+out=$(bash "$REVIEW" --diff "$SPACE_NOPREFIX_DIFF" --forbid-path 'a b/') && code=0 || code=$?
+expect_code 1 "$code" "a prefix-less header with a spaced directory still resolves"
+assert_contains "$out" "forbidden path touched: 'a b/x'" "the prefix-less spaced path is exact"
+
 # --- forbidden paths --------------------------------------------------------
 
 STATE_DIFF="$TMP_ROOT/state.diff"

@@ -243,6 +243,13 @@ EXCLUDE_SEEN=()
 # surrounding quote pair comes off either or both before the spellings are
 # tested. A quote pair also delimits its field, which is why splitting on it is
 # safe where splitting an unquoted pair on whitespace would not be.
+#
+# Git leaves a path containing spaces unquoted, so an `a/X b/Y` remainder can
+# carry more than one ` b/`: `a/plan b/notes.md b/state b/secret.env` splits
+# into `plan b/notes.md` -> `state b/secret.env` and into `plan` ->
+# `notes.md b/state b/secret.env` equally well. Nothing in the header decides
+# between them, so a second ` b/` makes the header unresolvable rather than
+# letting the first one win and inventing a path.
 header_path() {  # <text after 'diff --git '>
   local rest=$1 first second half
   case "$rest" in
@@ -272,7 +279,11 @@ header_path() {  # <text after 'diff --git '>
 
   case "$rest" in
     'a/'?*' b/'?*)
-      printf '%s' "${rest#*' b/'}"
+      second=${rest#*' b/'}
+      case "$second" in
+        *' b/'*) return 0 ;;
+      esac
+      printf '%s' "$second"
       return 0
       ;;
   esac

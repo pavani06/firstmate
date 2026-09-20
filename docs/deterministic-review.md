@@ -69,6 +69,9 @@ The lab source instead required the second byte to differ from the marker, which
 
 File headers are read in the two spellings git writes, and only those: `diff --git a/X b/Y`, and the prefix-less `diff --git X X` that `--no-prefix` or `diff.noprefix=true` produces for a non-rename, accepted only when its two fields are byte-identical.
 Git C-quotes a field whose path needs escaping, independently per field (`diff --git a/plain.md "b/caf\303\251.md"`), so a surrounding quote pair is removed from either or both fields before those two spellings are tested.
+Only that quote pair comes off: the C escapes inside the field are left as git wrote them, so such a path is matched in its escaped spelling (`docs/caf\303\251.md`, not `docs/café.md`).
+Prefixes for `--allow-path` and `--forbid-path` therefore have to be ASCII to match a C-quoted path - `--forbid-path docs/` works, `--forbid-path 'docs/café'` cannot match. Decoding git's escape alphabet is deliberately not done until a concrete need appears.
+Git leaves a path containing spaces unquoted, which can make an `a/X b/Y` header carry a second ` b/` (`a/plan b/notes.md b/state b/secret.env`); nothing in the header says which one splits it, so that header is unresolvable too rather than resolved to an invented path.
 Any other prefix pair - `diff.mnemonicPrefix`'s `i/X w/X`, a custom src/dst prefix, a prefix-less rename - leaves the changed file unresolvable.
 Such a file still counts toward `--max-files`, but its path never enters prefix matching: a requested `--allow-path` or `--forbid-path` fails and names the header instead, because a path guard that cannot name its file must not clear it.
 
