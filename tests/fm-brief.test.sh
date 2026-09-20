@@ -898,6 +898,9 @@ test_scout_and_secondmate_load_decision_hold_policy() {
 # no path from the generating checkout at all, and must name the base its
 # relative paths resolve against, the way the charter's other cross-file
 # references do.
+# The rendered no-mistakes brief also has to scope its PR prose claim to text
+# the crewmate actually authors, since the pipeline's own agent writes that
+# mode's PR body.
 test_briefs_reference_fleet_prose_skills() {
   local home kind brief
   home="$TMP_ROOT/prose-skills-home"
@@ -917,6 +920,11 @@ test_briefs_reference_fleet_prose_skills() {
       "$kind brief does not reference the no-ai-slop prose skill"
     assert_grep "eval.md" "$brief" "$kind brief does not name the no-ai-slop self-check"
   done
+  brief="$home/data/no-mistakes/brief.md"
+  assert_grep "any PR text you write or supply yourself" "$brief" \
+    "no-mistakes brief claims prose coverage over PR text the crewmate does not author"
+  assert_grep "The pipeline's own agent writes the PR body in this mode" "$brief" \
+    "no-mistakes brief does not scope the PR prose rules to what the crewmate supplies"
   FM_HOME="$home" FM_SECONDMATE_CHARTER='Supervise assigned work.' \
     "$ROOT/bin/fm-brief.sh" prose-mate --secondmate --no-projects >/dev/null 2>&1 \
     || fail "secondmate scaffold failed"

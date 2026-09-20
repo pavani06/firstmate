@@ -254,7 +254,7 @@ EOF
 
 fm_prose_skills_line() {  # [<skills-dir> [<base-qualifier>]]
   local skills=${1:-$FM_ROOT/.agents/skills} base=${2:-}
-  printf '%s\n' "Reader-facing prose you author (reports and other delivered docs, commit messages, PR title and body, status and reply lines) follows the fleet prose skills: read $base\`$skills/i-have-adhd/SKILL.md\` and \`$skills/no-ai-slop/SKILL.md\` (with its \`eval.md\` self-check) before writing any of it."
+  printf '%s\n' "Reader-facing prose you author (reports and other delivered docs, commit messages, any PR text you write or supply yourself, status and reply lines) follows the fleet prose skills: read $base\`$skills/i-have-adhd/SKILL.md\` and \`$skills/no-ai-slop/SKILL.md\` (with its \`eval.md\` self-check) before writing any of it."
 }
 
 fm_dod_block() {  # <mode> <task-id>
@@ -290,6 +290,8 @@ EOF
 Delivery contract: mode=no-mistakes
 The task is complete only when committed on your branch.
 $prose_line
+The pipeline's own agent writes the PR body in this mode, so the PR text those skills reach is the text you write or supply yourself: the done summary, a title or summary a gate asks you for, and any wording you hand back through \`no-mistakes axi respond\`.
+They never reach the \`--intent\` string below, which is the captain's words copied verbatim and is never rewritten.
 When you believe it is complete, append \`done [at=<epoch>]: {summary}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
 
