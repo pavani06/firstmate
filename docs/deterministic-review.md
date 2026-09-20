@@ -26,7 +26,17 @@ COVERAGE (hunks=2)
   docs/two.md @@ -7 +7,2 @@
 ```
 
+A changed file that carries no hunk at all is listed under its structural markers instead of a line range:
+
+```
+COVERAGE (hunks=0)
+  state/moved.env - renamed, no hunk
+  assets/logo.png - binary, no hunk
+  run.sh - mode change, no hunk
+```
+
 This is the deterministic half of the DEC-003 line-by-line objective: the reviewing agent consumes the block as the guaranteed surface it has to cover, so no touched region of the diff goes unexamined because the agent never noticed it.
+Every file git names in the diff appears in the block, whether or not it has hunks.
 Producing the skeleton needs nothing beyond the diff itself - no CLI, no dependency, no tokens.
 
 ## The assertions
@@ -47,7 +57,7 @@ Producing the skeleton needs nothing beyond the diff itself - no CLI, no depende
 A diff changes something when any of three kinds of evidence is present:
 
 - `+`/`-` content lines.
-- A hunk. Git writes an `@@` header only for a region it found different, so a hunk whose only edit is a blank line - which git writes as a bare `+` or `-` that the content-line rule does not count - still changed the file.
+- A hunk that carries no content line. Git writes an `@@` header only for a region it found different, so a truncated or hand-edited diff whose content lines are gone still counts as a change rather than grading itself empty. Every `@@` header git writes for a whole diff has content under it, so this is deliberate fail-closed insurance against degenerate input, not a rule ordinary diffs meet.
 - A marker for a change that has neither: a created or deleted file (`new file mode` / `deleted file mode`), a rename (`rename from` / `rename to`), a binary file (`Binary files ... differ`), or a mode change (`old mode` / `new mode`).
 
 So a pure rename, a chmod, a replaced image, an added blank line and an empty `.gitkeep` are all real changes: `--claim change` passes over them and `--claim no-change` fails.
@@ -58,6 +68,7 @@ Inside one, every line starting with `+` or `-` is content whatever follows that
 The lab source instead required the second byte to differ from the marker, which hid both; the property that evidence measured is what this port keeps, not the mechanism that produced it.
 
 File headers are read in the two spellings git writes, and only those: `diff --git a/X b/Y`, and the prefix-less `diff --git X X` that `--no-prefix` or `diff.noprefix=true` produces for a non-rename, accepted only when its two fields are byte-identical.
+Git C-quotes a field whose path needs escaping, independently per field (`diff --git a/plain.md "b/caf\303\251.md"`), so a surrounding quote pair is removed from either or both fields before those two spellings are tested.
 Any other prefix pair - `diff.mnemonicPrefix`'s `i/X w/X`, a custom src/dst prefix, a prefix-less rename - leaves the changed file unresolvable.
 Such a file still counts toward `--max-files`, but its path never enters prefix matching: a requested `--allow-path` or `--forbid-path` fails and names the header instead, because a path guard that cannot name its file must not clear it.
 

@@ -577,6 +577,111 @@ expect_code 1 "$code" "an unresolvable file is still counted by --max-files"
 out=$(bash "$REVIEW" --diff "$MNEMONIC_DIFF" --claim change) && code=0 || code=$?
 expect_code 0 "$code" "an unresolvable header does not disturb the claim assertion"
 
+# --- every changed file reaches the coverage skeleton -----------------------
+
+# A rename, a binary rewrite and a mode change carry no hunk, so the coverage
+# block has to name them under their markers or the reviewer is handed an
+# empty surface over a diff that moved a secrets file.
+HUNKLESS_REPO="$TMP_ROOT/hunkless-repo"
+mkdir -p "$HUNKLESS_REPO/state" "$HUNKLESS_REPO/assets"
+(
+  cd "$HUNKLESS_REPO" || exit 1
+  git init -q .
+  git config user.email crew@example.test
+  git config user.name crew
+  printf 'secret\n' > state/secret.env
+  printf 'PNGv1\000\001\002\n' > assets/logo.png
+  printf 'echo hi\n' > run.sh
+  git add -A
+  git commit -qm init
+  git mv state/secret.env state/moved.env
+  printf 'PNGv2\000\003\004\n' > assets/logo.png
+  chmod +x run.sh
+  git add -A
+  git diff --cached -M > "$TMP_ROOT/hunkless.diff"
+) > /dev/null 2>&1
+
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/hunkless.diff" --claim change --max-files 5) \
+  && code=0 || code=$?
+expect_code 0 "$code" "a rename, binary and mode-only diff is a change"
+assert_contains "$out" "COVERAGE (hunks=0)" "a hunkless diff reports no hunks"
+assert_contains "$out" "state/moved.env - renamed, no hunk" \
+  "the renamed file is listed under its marker"
+assert_contains "$out" "assets/logo.png - binary, no hunk" \
+  "the binary file is listed under its marker"
+assert_contains "$out" "run.sh - mode change, no hunk" \
+  "the mode-changed file is listed under its marker"
+
+# Independent check that every file git named reaches the skeleton.
+missing=''
+while IFS= read -r path; do
+  case "$out" in
+    *"$path"*) ;;
+    *) missing="$missing $path" ;;
+  esac
+done < <(grep '^diff --git ' "$TMP_ROOT/hunkless.diff" | sed 's|^diff --git a/.* b/||')
+assert_equals '' "$missing" "every changed file of the fixture appears in the skeleton"
+
+# A file with hunks keeps its line ranges and gains no marker line.
+out=$(bash "$REVIEW" --diff "$REAL_DIFF" --max-files 5) && code=0 || code=$?
+assert_contains "$out" "bin/x.sh @@ -1,2 +1,3 @@" "a hunked file keeps its line range"
+assert_not_contains "$out" "bin/x.sh - " "a hunked file gets no no-hunk entry"
+
+# Creation and deletion name themselves too.
+out=$(bash "$REVIEW" --diff "$NEWFILE_DIFF" --claim change) && code=0 || code=$?
+assert_contains "$out" "empty.gitkeep - created, no hunk" "a created file names its marker"
+out=$(bash "$REVIEW" --diff "$DELFILE_DIFF" --claim change) && code=0 || code=$?
+assert_contains "$out" "empty.gitkeep - deleted, no hunk" "a deleted file names its marker"
+
+# --- C-quoted header fields -------------------------------------------------
+
+# Git C-quotes a path that needs escaping, independently per field. A file it
+# quotes must resolve like any other, or one such file turns every path
+# assertion in the diff into a false FAIL.
+QUOTED_REPO="$TMP_ROOT/quoted-repo"
+mkdir -p "$QUOTED_REPO"
+(
+  cd "$QUOTED_REPO" || exit 1
+  git init -q .
+  git config user.email crew@example.test
+  git config user.name crew
+  mkdir -p docs
+  printf 'x\n' > "docs/$(printf 'caf\303\251')".md
+  git add -A
+  git diff --cached > "$TMP_ROOT/quoted.diff"
+  git commit -qm init
+  git mv "docs/$(printf 'caf\303\251')".md docs/plain.md
+  git diff --cached -M > "$TMP_ROOT/quoted-rename.diff"
+) > /dev/null 2>&1
+
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/quoted.diff" --allow-path docs/) && code=0 || code=$?
+expect_code 0 "$code" "a C-quoted path resolves and satisfies --allow-path"
+assert_not_contains "$out" "unresolvable" "a C-quoted header is not unresolvable"
+
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/quoted.diff" --forbid-path state/) && code=0 || code=$?
+expect_code 0 "$code" "a C-quoted path outside the forbidden prefix does not fail"
+
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/quoted.diff" --forbid-path docs/) && code=0 || code=$?
+expect_code 1 "$code" "a C-quoted path under the forbidden prefix still fails"
+
+# Git quotes each field on its own, so a rename can quote only one side.
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/quoted-rename.diff" --allow-path docs/) \
+  && code=0 || code=$?
+expect_code 0 "$code" "a half-quoted rename header resolves to its b/ path"
+assert_not_contains "$out" "unresolvable" "a half-quoted header is not unresolvable"
+
+# The prefix-less spelling survives quoting too.
+QUOTED_NOPREFIX="$TMP_ROOT/quoted-noprefix.diff"
+write_diff "$QUOTED_NOPREFIX" \
+  'diff --git "state/caf\303\251.env" "state/caf\303\251.env"' \
+  '@@ -1 +1,2 @@' \
+  ' a' \
+  '+b'
+out=$(bash "$REVIEW" --diff "$QUOTED_NOPREFIX" --forbid-path state/) && code=0 || code=$?
+expect_code 1 "$code" "a quoted prefix-less header still trips --forbid-path"
+assert_contains "$out" "forbidden path touched: 'state/caf\303\251.env'" \
+  "the quoted prefix-less header yields its path"
+
 # --- forbidden paths --------------------------------------------------------
 
 STATE_DIFF="$TMP_ROOT/state.diff"

@@ -6,7 +6,10 @@
 #
 # Every run emits a COVERAGE block enumerating each hunk of the diff with its
 # file and the old/new line ranges from its @@ header, so a reviewing agent
-# always receives the full line-anchored surface it has to cover.
+# always receives the full line-anchored surface it has to cover. A changed
+# file that carries no hunk at all - a rename, a mode change, a binary
+# rewrite - is listed under its structural markers instead, so no touched file
+# is missing from that surface.
 #
 # The assertions are pure text functions (no model, no network, no
 # randomness), reported as one readable PASS/FAIL verdict:
@@ -95,7 +98,8 @@ text starts with + or - always does.
 removed lines.
 
 Every run first prints a COVERAGE block naming each hunk of the diff with its
-file and @@ line ranges, as the line-anchored surface a reviewer must cover.
+file and @@ line ranges, as the line-anchored surface a reviewer must cover. A
+changed file with no hunk is listed under its structural markers instead.
 
 The diff is read from <file>, or from standard input when <file> is -.
 Exit codes: 0 pass, 1 failure, 2 usage or read error.
@@ -234,9 +238,38 @@ REQUIRE_SEEN=()
 EXCLUDE_SEEN=()
 
 # Resolve a `diff --git` header's remainder to the changed file, or to the
-# empty string when no spelling names it unambiguously.
+# empty string when no spelling names it unambiguously. Git C-quotes a field
+# whose path needs escaping, and quotes each field independently, so a
+# surrounding quote pair comes off either or both before the spellings are
+# tested. A quote pair also delimits its field, which is why splitting on it is
+# safe where splitting an unquoted pair on whitespace would not be.
 header_path() {  # <text after 'diff --git '>
-  local rest=$1 half
+  local rest=$1 first second half
+  case "$rest" in
+    '"'*'" '*)
+      first=${rest#'"'}
+      second=${first#*'" '}
+      first=${first%%'" '*}
+      ;;
+    *' "'*'"')
+      first=${rest% '"'*}
+      second=${rest##* '"'}
+      second=${second%'"'}
+      ;;
+    *)
+      first=''
+      ;;
+  esac
+  if [ -n "$first" ]; then
+    case "$second" in
+      '"'*'"')
+        second=${second#'"'}
+        second=${second%'"'}
+        ;;
+    esac
+    rest="$first $second"
+  fi
+
   case "$rest" in
     'a/'?*' b/'?*)
       printf '%s' "${rest#*' b/'}"
@@ -250,12 +283,31 @@ header_path() {  # <text after 'diff --git '>
   fi
 }
 
+# Record a structural marker against the stanza being parsed, once per kind.
+add_marker() {  # <label>
+  case ", $stanza_markers, " in
+    *", $1, "*) return 0 ;;
+  esac
+  stanza_markers="${stanza_markers}${stanza_markers:+, }$1"
+}
+
+# Close the stanza being parsed. A stanza that carried no hunk still names a
+# changed file, so it enters the coverage skeleton under its markers rather
+# than a line range; otherwise its hunks already listed it.
+flush_stanza() {
+  [ -n "$stanza_file" ] || return 0
+  [ "$stanza_hunks" -eq 0 ] || return 0
+  COVERAGE="${COVERAGE}  $stanza_file - ${stanza_markers:+$stanza_markers, }no hunk"$'\n'
+}
+
 parse_diff() {
   local line rest ranges body in_hunk=0 current='(unknown file)' i
+  local stanza_file='' stanza_hunks=0 stanza_markers=''
   local nreq=${#REQUIRE[@]} nexc=${#EXCLUDE[@]}
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
       'diff --git '*)
+        flush_stanza
         in_hunk=0
         rest=${line#'diff --git '}
         current=$(header_path "$rest")
@@ -266,13 +318,29 @@ parse_diff() {
           CHANGED_FILES+=("$current")
         fi
         FILE_COUNT=$((FILE_COUNT + 1))
+        stanza_file=$current
+        stanza_hunks=0
+        stanza_markers=''
         ;;
-      'new file mode '?* | 'deleted file mode '?* | 'rename from '?* \
-        | 'rename to '?* | 'old mode '?* | 'new mode '?*)
+      'new file mode '?*)
         STRUCTURAL=1
+        add_marker created
+        ;;
+      'deleted file mode '?*)
+        STRUCTURAL=1
+        add_marker deleted
+        ;;
+      'rename from '?* | 'rename to '?*)
+        STRUCTURAL=1
+        add_marker renamed
+        ;;
+      'old mode '?* | 'new mode '?*)
+        STRUCTURAL=1
+        add_marker 'mode change'
         ;;
       'Binary files '*' differ')
         STRUCTURAL=1
+        add_marker binary
         ;;
       '@@ '*' @@'*)
         in_hunk=1
@@ -280,6 +348,7 @@ parse_diff() {
         ranges=${ranges%%' @@'*}
         COVERAGE="${COVERAGE}  $current @@ $ranges @@"$'\n'
         HUNK_COUNT=$((HUNK_COUNT + 1))
+        stanza_hunks=$((stanza_hunks + 1))
         ;;
       '+'*)
         [ "$in_hunk" -eq 1 ] || continue
@@ -298,6 +367,7 @@ parse_diff() {
         ;;
     esac
   done
+  flush_stanza
   return 0
 }
 
