@@ -8,46 +8,52 @@
 # file and the old/new line ranges from its @@ header, so a reviewing agent
 # always receives the full line-anchored surface it has to cover.
 #
-# Four assertions, all pure text functions (no model, no network, no
+# The assertions are pure text functions (no model, no network, no
 # randomness), reported as one readable PASS/FAIL verdict:
-#   - claim consistency: a claim announcing a change over an empty diff fails,
-#     and a no-change claim over a real diff fails (both directions of the
-#     lab's no_op_consistency grader; a claim classifiable as neither is never
-#     a failure)
+#   - claim consistency: --claim change over an empty diff fails, and
+#     --claim no-change over a diff that changes anything fails
+#   - required text: every --require substring must appear in the diff
+#   - forbidden text: no --exclude substring may appear in the diff
+#   - allowed paths: every changed file must sit under some --allow-path prefix
 #   - forbidden paths: any changed file under a --forbid-path prefix fails
 #   - file limit: more than --max-files changed files fails
 #
 # Ported from pavani06/fleet-lab experiments/duolingo-graders/graders.py
-# (DEC-002a evidence: 12/12 failed synthetic cases detected, 0 false positives
-# over 10 real merged firstmate PRs), itself a port of the deterministic
-# graders from Duolingo's engineering blog "How Duolingo Built a
-# Production-Ready AI Agent Platform" (2026-08-04). Diff parsing matches the
-# validated Python regexes exactly, including their header-exclusion edge
-# cases noted inline.
+# (DEC-002a evidence: 12/12 planted synthetic failures detected, 0 false
+# positives over 10 real merged firstmate PRs), itself a port of the
+# deterministic graders from Duolingo's engineering blog "How Duolingo Built a
+# Production-Ready AI Agent Platform" (2026-08-04).
 #
-# Claim classification deliberately diverges from the lab source's literal
-# phrase lists, because the property the DEC-002a evidence measured is zero
-# false positives, and bare substring matching does not hold it: it classified
-# "unresolved" as resolve, "prefix" as fix and "dispatch" as patch. Phrases are
-# matched on word boundaries with explicit inflection suffixes instead, and the
-# no-change set recognises a negation separated from its noun ("no code change")
-# so an explicit negation outranks any positive word in the same claim. Because
-# a stem now covers its own inflections and a noun covers its own plural, the
-# redundant entries of both lab lists ("fixed" beside "fix", "no changes
-# needed" beside "no change", and so on) are gone rather than repeated.
+# What this port declares fidelity to is that measured property - 12/12
+# detection with 0 false positives - and not to the lab source's prose parser.
+# The lab classified a free-text claim by matching change and no-change phrase
+# lists against it, which cannot hold the zero-false-positive property: every
+# round of review found more truthful prose it misread ("unresolved" as
+# resolve, "prefix" as fix, "no functional changes" as an empty-diff claim,
+# "done investigating" as an edit). The classifier is therefore gone, on
+# purpose: --claim takes the verdict itself, change or no-change, and free text
+# belongs in --note, which is printed and never interpreted. With no language
+# to parse, the claim assertion is a comparison between a typed verdict and a
+# parsed diff fact, and false positives are impossible by construction.
+#
+# A diff changes something when it has +/- content lines, or when it carries a
+# structural marker that changes files without them: a rename (rename from /
+# rename to), a binary file (Binary files ... differ), or a mode change (old
+# mode / new mode).
 #
 # This is an optional review layer: it never replaces the no-mistakes
 # pipeline's authority over validation or the captain's merge authority.
 #
 # Usage:
-#   fm-diff-review.sh --diff <file|-> [--claim <text>] [--forbid-path P]... [--max-files N]
+#   fm-diff-review.sh --diff <file|-> [--claim change|no-change] [--note <text>]
+#                     [--require S]... [--exclude S]... [--allow-path P]...
+#                     [--forbid-path P]... [--max-files N]
 #   fm-diff-review.sh --help
 #
 # The diff is read from <file>, or from standard input when <file> is -.
-# At least one assertion (--claim, --forbid-path, or --max-files) is required,
-# because a review run with nothing to assert is a caller mistake, and every
-# flag requires a non-empty value, because an empty one would silently disable
-# the assertion it asked for.
+# At least one assertion is required, because a review run with nothing to
+# assert is a caller mistake, and every flag requires a non-empty value,
+# because an empty one would silently disable the assertion it asked for.
 # Exit codes: 0 all assertions passed, 1 at least one failed, 2 usage or read
 # error.
 set -eu
@@ -55,14 +61,25 @@ set -eu
 usage() {
   cat <<'USAGE'
 usage:
-  fm-diff-review.sh --diff <file|-> [--claim <text>] [--forbid-path P]... [--max-files N]
+  fm-diff-review.sh --diff <file|-> [--claim change|no-change] [--note <text>]
+                    [--require S]... [--exclude S]... [--allow-path P]...
+                    [--forbid-path P]... [--max-files N]
   fm-diff-review.sh --help
 
 Run deterministic, LLM-free review assertions over one unified diff:
-  --claim <text>     reported outcome; a change claim over an empty diff and a
-                     no-change claim over a real diff both fail
+  --claim change     fail when the diff changes nothing
+  --claim no-change  fail when the diff changes anything
+  --note <text>      free-text remark, printed in the report and never
+                     interpreted; it is not an assertion
+  --require S        fail when substring S is absent from the diff (repeatable)
+  --exclude S        fail when substring S is present in the diff (repeatable)
+  --allow-path P     fail when a changed file sits under no allowed prefix
+                     (repeatable)
   --forbid-path P    fail when a changed file sits under prefix P (repeatable)
   --max-files N      fail when the diff changes more than N files
+
+A diff changes something when it has +/- content lines, or a rename, binary or
+mode-change marker.
 
 Every run first prints a COVERAGE block naming each hunk of the diff with its
 file and @@ line ranges, as the line-anchored surface a reviewer must cover.
@@ -85,7 +102,11 @@ require_value() {
 
 DIFF_INPUT=''
 CLAIM=''
+NOTE=''
 MAX_FILES=''
+REQUIRE=()
+EXCLUDE=()
+ALLOW_PATHS=()
 FORBID_PATHS=()
 
 while [ "$#" -gt 0 ]; do
@@ -101,7 +122,30 @@ while [ "$#" -gt 0 ]; do
       ;;
     --claim)
       require_value --claim "$#" "${2-}"
-      CLAIM=$2
+      case "$2" in
+        change | no-change) CLAIM=$2 ;;
+        *) die_usage "--claim must be exactly 'change' or 'no-change', not: $2" ;;
+      esac
+      shift 2
+      ;;
+    --note)
+      require_value --note "$#" "${2-}"
+      NOTE=$2
+      shift 2
+      ;;
+    --require)
+      require_value --require "$#" "${2-}"
+      REQUIRE+=("$2")
+      shift 2
+      ;;
+    --exclude)
+      require_value --exclude "$#" "${2-}"
+      EXCLUDE+=("$2")
+      shift 2
+      ;;
+    --allow-path)
+      require_value --allow-path "$#" "${2-}"
+      ALLOW_PATHS+=("$2")
       shift 2
       ;;
     --forbid-path)
@@ -127,21 +171,26 @@ case "$MAX_FILES" in
   '') ;;
   *[!0-9]*) die_usage "--max-files must be a non-negative integer" ;;
 esac
-if [ -z "$CLAIM" ] && [ "${#FORBID_PATHS[@]}" -eq 0 ] && [ -z "$MAX_FILES" ]; then
-  die_usage "no assertions requested: pass --claim, --forbid-path, or --max-files"
+if [ -z "$CLAIM" ] && [ -z "$MAX_FILES" ] \
+  && [ "${#REQUIRE[@]}" -eq 0 ] && [ "${#EXCLUDE[@]}" -eq 0 ] \
+  && [ "${#ALLOW_PATHS[@]}" -eq 0 ] && [ "${#FORBID_PATHS[@]}" -eq 0 ]; then
+  die_usage "no assertions requested: pass --claim, --require, --exclude, --allow-path, --forbid-path, or --max-files"
 fi
 
-if [ "$DIFF_INPUT" != '-' ] && { [ ! -f "$DIFF_INPUT" ] || [ ! -r "$DIFF_INPUT" ]; }; then
+if [ "$DIFF_INPUT" != '-' ] && { [ -d "$DIFF_INPUT" ] || [ ! -r "$DIFF_INPUT" ]; }; then
   printf 'error: cannot read diff file: %s\n' "$DIFF_INPUT" >&2
   exit 2
 fi
 
 # --- parse the diff ---------------------------------------------------------
-# Matches graders.py exactly:
-#   - changed files come from `diff --git a/X b/Y` headers, taking the b/
-#     (new) path; the first ` b/` splits, matching the Python regex's
-#     non-greedy a/ group, and both paths must be non-empty, matching its
-#     .+? groups
+# Follows graders.py, with the file header widened to the prefix-less spelling
+# git emits under diff.noprefix / --no-prefix, so a changed file is never
+# invisible to the path and file-count assertions:
+#   - `diff --git a/X b/Y` yields the b/ (new) path; the first ` b/` splits,
+#     matching the Python regex's non-greedy a/ group, and both paths must be
+#     non-empty, matching its .+? groups
+#   - any other `diff --git X Y` header yields its last field, which is the
+#     same new path git writes in the b/ position
 #   - an added line starts with one `+` followed by a non-`+` byte, so the
 #     `+++` header and a bare `+` line are never counted
 #   - a removed line starts with one `-` followed by a non-`-` byte, so the
@@ -153,22 +202,38 @@ CHANGED_FILES=()
 FILE_COUNT=0
 ADDED=0
 REMOVED=0
+STRUCTURAL=0
 HUNK_COUNT=0
 COVERAGE=''
+REQUIRE_SEEN=()
+EXCLUDE_SEEN=()
 
 parse_diff() {
-  local line rest ranges current='(unknown file)'
+  local line rest ranges current='(unknown file)' i
+  local nreq=${#REQUIRE[@]} nexc=${#EXCLUDE[@]}
   while IFS= read -r line || [ -n "$line" ]; do
+    for ((i = 0; i < nreq; i++)); do
+      case "$line" in *"${REQUIRE[i]}"*) REQUIRE_SEEN[i]=1 ;; esac
+    done
+    for ((i = 0; i < nexc; i++)); do
+      case "$line" in *"${EXCLUDE[i]}"*) EXCLUDE_SEEN[i]=1 ;; esac
+    done
     case "$line" in
-      'diff --git a/'*)
-        rest=${line#'diff --git a/'}
+      'diff --git '*)
+        rest=${line#'diff --git '}
         case "$rest" in
-          ?*' b/'?*)
-            current=${rest#*' b/'}
-            CHANGED_FILES+=("$current")
-            FILE_COUNT=$((FILE_COUNT + 1))
-            ;;
+          'a/'?*' b/'?*) current=${rest#*' b/'} ;;
+          *' '?*) current=${rest##* } ;;
+          *) current='(unknown file)' ;;
         esac
+        CHANGED_FILES+=("$current")
+        FILE_COUNT=$((FILE_COUNT + 1))
+        ;;
+      'rename from '?* | 'rename to '?* | 'old mode '?* | 'new mode '?*)
+        STRUCTURAL=1
+        ;;
+      'Binary files '*' differ')
+        STRUCTURAL=1
         ;;
       '@@ '*' @@'*)
         ranges=${line#'@@ '}
@@ -196,61 +261,55 @@ failures=''
 
 # --- claim consistency ------------------------------------------------------
 
-# Each pattern is matched as a whole word: bounded by the start or end of the
-# claim, or by a byte that is not a lowercase letter or digit.
-matches_word() {
-  local text=$1 pattern
-  shift
-  for pattern in "$@"; do
-    if [[ $text =~ (^|[^a-z0-9])($pattern)($|[^a-z0-9]) ]]; then
-      return 0
-    fi
-  done
-  return 1
-}
+if [ $((ADDED + REMOVED)) -gt 0 ] || [ "$STRUCTURAL" -eq 1 ]; then
+  DIFF_CHANGES=1
+else
+  DIFF_CHANGES=0
+fi
 
-# Negation of a change noun, with or without a modifier between the two
-# ("no change", "no code change"), so an explicit negation classifies the
-# claim even when it also carries a positive word.
-NO_CHANGE_PATTERNS=(
-  'no( [a-z][a-z-]*)? (change|update|modification|edit|fix|diff|action|work|operation|op)s?'
-  'no-?ops?'
-  'nothing (to change|changed|to do|to fix)'
-  'unchanged'
-  '(did|does) not (change|modify)'
-  "(didn't|doesn't) (change|modify)"
-  'not needed'
-  'empty diff'
-  'already (up to date|correct|handled)'
-)
-
-# Stems carry their own inflections, so "fix" classifies "fixes", "fixed" and
-# "fixing" while leaving "prefix" alone.
-CHANGE_PATTERNS=(
-  '(fix|implement|add|change|update|modify|resolve|complete|create|remove|write|patch|refactor|rename|move|delete)(s|d|es|ed|ing)?'
-  'modifie[ds]'
-  'wrote'
-  'done'
-)
-
-if [ -n "$CLAIM" ]; then
-  lowered=$(printf '%s' "$CLAIM" | tr '[:upper:]' '[:lower:]')
-  kind='unknown'
-  if matches_word "$lowered" "${NO_CHANGE_PATTERNS[@]}"; then
-    kind='no_change'
-  elif matches_word "$lowered" "${CHANGE_PATTERNS[@]}"; then
-    kind='change'
-  fi
-
-  if [ "$kind" = 'no_change' ] && [ $((ADDED + REMOVED)) -gt 0 ]; then
-    failures="${failures}  - claim says 'no change' but diff has +$ADDED/-$REMOVED lines"$'\n'
-  fi
-  if [ "$kind" = 'change' ] && [ $((ADDED + REMOVED)) -eq 0 ]; then
-    failures="${failures}  - claim says a change was made but the diff is empty"$'\n'
+if [ "$CLAIM" = 'change' ] && [ "$DIFF_CHANGES" -eq 0 ]; then
+  failures="${failures}  - claim is 'change' but the diff changes nothing"$'\n'
+fi
+if [ "$CLAIM" = 'no-change' ] && [ "$DIFF_CHANGES" -eq 1 ]; then
+  if [ $((ADDED + REMOVED)) -gt 0 ]; then
+    failures="${failures}  - claim is 'no-change' but the diff has +$ADDED/-$REMOVED lines"$'\n'
+  else
+    failures="${failures}  - claim is 'no-change' but the diff renames, changes the mode of, or rewrites a binary file"$'\n'
   fi
 fi
 
-# --- forbidden paths --------------------------------------------------------
+# --- required and forbidden text --------------------------------------------
+
+for ((i = 0; i < ${#REQUIRE[@]}; i++)); do
+  if [ "${REQUIRE_SEEN[i]-0}" != 1 ]; then
+    failures="${failures}  - required hunk absent: '${REQUIRE[i]}'"$'\n'
+  fi
+done
+
+for ((i = 0; i < ${#EXCLUDE[@]}; i++)); do
+  if [ "${EXCLUDE_SEEN[i]-0}" = 1 ]; then
+    failures="${failures}  - forbidden hunk present: '${EXCLUDE[i]}'"$'\n'
+  fi
+done
+
+# --- allowed and forbidden paths --------------------------------------------
+
+if [ "${#ALLOW_PATHS[@]}" -gt 0 ] && [ "$FILE_COUNT" -gt 0 ]; then
+  for changed in "${CHANGED_FILES[@]}"; do
+    allowed=0
+    for prefix in "${ALLOW_PATHS[@]}"; do
+      case "$changed" in
+        "$prefix"*)
+          allowed=1
+          break
+          ;;
+      esac
+    done
+    if [ "$allowed" -eq 0 ]; then
+      failures="${failures}  - changed file outside allowed paths: '$changed' (allowed prefixes: ${ALLOW_PATHS[*]})"$'\n'
+    fi
+  done
+fi
 
 if [ "${#FORBID_PATHS[@]}" -gt 0 ] && [ "$FILE_COUNT" -gt 0 ]; then
   for prefix in "${FORBID_PATHS[@]}"; do
@@ -274,6 +333,9 @@ fi
 
 printf 'COVERAGE (hunks=%d)\n' "$HUNK_COUNT"
 printf '%s' "$COVERAGE"
+if [ -n "$NOTE" ]; then
+  printf 'NOTE: %s\n' "$NOTE"
+fi
 
 if [ -n "$failures" ]; then
   printf 'FAIL\n'

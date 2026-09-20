@@ -1,19 +1,20 @@
 # Deterministic diff review layer
 
 Fleet PR review has a deterministic, LLM-free layer that asserts structural properties of a task diff before or alongside agent reasoning, and hands the reviewer a line-anchored map of everything the diff touches.
-It catches the two signature coding-agent failure modes, claim-without-diff and no-op-with-diff, plus two diff-shape guards, at zero token cost and with fully reproducible verdicts.
+It catches the two signature coding-agent failure modes, claim-without-diff and no-op-with-diff, plus four diff-shape guards over text, paths and size, at zero token cost and with fully reproducible verdicts.
 The script is `bin/fm-diff-review.sh`; its header and `--help` own the exact flags and parsing semantics.
 This layer is optional: the no-mistakes pipeline stays the owner of validation, and merge authority is unchanged.
 
 ## Where it came from
 
 The assertions are a port of the two deterministic graders from Duolingo's engineering blog "How Duolingo Built a Production-Ready AI Agent Platform" (2026-08-04), via the `pavani06/fleet-lab` graduation experiments.
-The lab evidence (DEC-002a) measured 12/12 detection of failed synthetic cases and 0 false positives across 10 real merged firstmate PRs.
-The port keeps the validated diff-parsing semantics exactly, and `tests/fm-diff-review.test.sh` pins them.
+The lab evidence (DEC-002a) measured 12/12 detection of planted synthetic failures and 0 false positives across 10 real merged firstmate PRs.
+The port keeps the validated diff-parsing semantics, and `tests/fm-diff-review.test.sh` carries the lab's 12 planted failures and 3 clean controls one-for-one so that measured property is what CI holds.
 
-What the port is faithful to is that measured property - zero false positives - not the literal phrase lists of the lab source.
-The lab classified claims by bare substring, which reads "unresolved" as resolve, "prefix" as fix and "dispatch" as patch, so firstmate matches claim phrases on word boundaries with explicit inflection suffixes instead, and treats an explicit negation ("no code change was warranted") as a no-change claim even when it also carries a positive word.
-Because a stem now covers its own inflections, the lab lists' redundant entries are gone rather than repeated; the script header records the divergence.
+What the port is faithful to is that measured property, not the lab source's prose parser.
+The lab classified a free-text claim by matching phrase lists against it, and no version of that classifier held the zero-false-positive line: it read "unresolved" as resolve, "prefix" as fix, "no functional changes" as a claim of an empty diff, and "done investigating" as an edit.
+So the classifier is gone on purpose. `--claim` takes the verdict itself - `change` or `no-change` - and free text goes to `--note`, which is printed and never interpreted.
+With no language to parse, the claim assertion is a comparison between a typed verdict and a parsed diff fact, and this class of false positive cannot occur.
 
 ## Line-anchored coverage
 
@@ -28,26 +29,48 @@ COVERAGE (hunks=2)
 This is the deterministic half of the DEC-003 line-by-line objective: the reviewing agent consumes the block as the guaranteed surface it has to cover, so no touched region of the diff goes unexamined because the agent never noticed it.
 Producing the skeleton needs nothing beyond the diff itself - no CLI, no dependency, no tokens.
 
-## The four assertions
+## The assertions
 
-- Claim consistency: a claim announcing a change over an empty diff fails, and a no-change claim over a real diff fails.
-  A claim that classifies as neither (most ordinary prose) is never a failure, which is what keeps the grader free of false positives.
+- Claim consistency: `--claim change` fails when the diff changes nothing, and `--claim no-change` fails when the diff changes anything.
+  The flag takes exactly one of those two tokens; anything else is a usage error, so no prose is ever classified.
+  `--note <text>` carries the worker's own wording into the report untouched and asserts nothing.
+- Required text: every `--require` substring must appear in the diff.
+- Forbidden text: no `--exclude` substring may appear in the diff, for example `sk-` or a stray debug print.
+- Allowed paths: every changed file must sit under some `--allow-path` prefix.
 - Forbidden paths: any changed file under a `--forbid-path` prefix fails, for example to notice a worker that touched `state/` or `.env`.
 - File limit: more than `--max-files` changed files fails.
+
+## When a diff changes something
+
+A diff changes something when it has `+`/`-` content lines, or when it carries a marker for a change that has none: a rename (`rename from` / `rename to`), a binary file (`Binary files ... differ`), or a mode change (`old mode` / `new mode`).
+A pure rename, a chmod and a replaced image are all real changes, so `--claim change` passes over them and `--claim no-change` fails.
+A stanza that is only headers - a new empty file, `---`/`+++` lines, a bare `+` - changes no content and counts as empty.
+
+File headers are read in both spellings git writes, `diff --git a/X b/Y` and the prefix-less `diff --git X Y` produced by `--no-prefix` or `diff.noprefix=true`, so a changed file is never invisible to the path and file-count assertions.
 
 ## Running it
 
 The diff is read from a file or from standard input, so any PR diff source works.
 
 ```sh
-git diff main...HEAD | bin/fm-diff-review.sh --diff - --claim "fixed the flaky login test" --forbid-path state/ --max-files 20
+git diff main...HEAD | bin/fm-diff-review.sh --diff - \
+  --claim change --note "fixed the flaky login test" --forbid-path state/ --max-files 20
 gh pr diff 1234 > /tmp/pr.diff
-bin/fm-diff-review.sh --diff /tmp/pr.diff --claim "fixed the flaky login test" --forbid-path state/
+bin/fm-diff-review.sh --diff /tmp/pr.diff --claim change --allow-path tests/ --exclude 'sk-'
+```
+
+A worker that investigated and edited nothing reports that as a verdict too:
+
+```sh
+git diff main...HEAD | bin/fm-diff-review.sh --diff - \
+  --claim no-change --note "checked the dispatch table; no code change was warranted"
 ```
 
 Exit codes: 0 all assertions passed, 1 at least one failed, 2 usage or read error.
-At least one assertion must be requested, because a review run with nothing to assert is a caller mistake, and every flag requires a non-empty value, because an empty one would otherwise silently disable the assertion it asked for.
+At least one assertion must be requested, because a review run with nothing to assert is a caller mistake; `--note` is not an assertion.
+Every flag requires a non-empty value, because an empty one would otherwise silently disable the assertion it asked for.
 A diff the layer cannot read is a read error, never a PASS: a verdict is only worth its input.
+Any readable stream is a valid `--diff`, including a pipe, a process substitution and `/dev/stdin`; a directory is not.
 
 ## Where it fits in the fleet PR flow
 
