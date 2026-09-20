@@ -1,0 +1,23 @@
+# Secondmate charter: host-local prose line, seeded into a real secondmate home
+# 1) scaffold:  FM_HOME=$LAB/home FM_SECONDMATE_CHARTER=... bin/fm-brief.sh task-mate --secondmate --no-projects
+# 2) seed:      FM_HOME=$LAB/home bin/fm-home-seed.sh task-mate $LAB/mate-home --no-projects
+
+== charter line as the secondmate reads it (data/charter.md in the seeded home) ==
+26:Reader-facing prose you author (reports and other delivered docs, commit messages, any PR text you write or supply yourself, status and reply lines) follows the fleet prose skills: read this home's `.agents/skills/i-have-adhd/SKILL.md` and `.agents/skills/no-ai-slop/SKILL.md` (with its `eval.md` self-check) before writing any of it.
+
+== the charter's sibling idiom it now matches ==
+38:Before treating an investigation or visual review as complete, load `captain-hold-lifecycle` from this home's `.agents/skills/` and pass its shared completion gate.
+
+== no path from the generating checkout anywhere in the charter (remote-home invariant) ==
+occurrences of the parent code root: 0
+
+== secondmate at its home root follows the line ==
+OPENED .agents/skills/i-have-adhd/SKILL.md  ->  --- name: i-have-adhd description: >- 
+OPENED .agents/skills/no-ai-slop/SKILL.md  ->  --- name: no-ai-slop description: >- 
+OPENED .agents/skills/no-ai-slop/eval.md  ->  <!-- Source: https://github.com/petergyang/no-ai-slop   skills/no-ai-s
+
+== adversarial: same worker after stepping into a project clone under the home ==
+/tmp/fm-prose-live/mate-home/projects/demo
+unqualified relative path does NOT resolve here
+charter names the base it resolves against, so the worker still reaches it:
+  this home's .agents/skills/no-ai-slop/SKILL.md -> readable

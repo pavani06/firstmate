@@ -1,0 +1,14 @@
+# no-mistakes ship brief - rendered Definition of done (live output of bin/fm-brief.sh)
+
+# Definition of done
+Delivery contract: mode=no-mistakes
+The task is complete only when committed on your branch.
+Reader-facing prose you author (reports and other delivered docs, commit messages, any PR text you write or supply yourself, status and reply lines) follows the fleet prose skills: read `/home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30AN3YQV3TYH991Y3JQMGKJ/.agents/skills/i-have-adhd/SKILL.md` and `/home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30AN3YQV3TYH991Y3JQMGKJ/.agents/skills/no-ai-slop/SKILL.md` (with its `eval.md` self-check) before writing any of it.
+The pipeline's own agent writes the PR body in this mode, so the only PR text those skills reach is text you write yourself, such as a title or summary a gate asks you for.
+The prose skills never restyle the captain's words you carry into `--intent`; what that string must contain is the contract below.
+When you believe it is complete, append `done [at=<epoch>]: {summary}` to the status file and stop.
+Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
+
+# ...and the --intent contract rendered below it, unchanged:
+95:The `--intent` string you pass must be self-sufficient: that string plus the codebase must let a reader reconstruct roughly the same specification, without depending on a separate report, a PR, or context that lives only in this conversation.
+96:When the captain's intent refers to a report, decision, or PR ("do items 1, 2, 3, and 7 of the report"), write the substance of the referenced items into `--intent` in the captain's terms, not only the pointer; that substance is the captain's ask by reference, while Firstmate's build instructions and your own decisions still stay out.

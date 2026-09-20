@@ -1,0 +1,8 @@
+# Real consumer of docs/documentation-audiences.json accepts the three new skill docs
+$ bin/fm-doc-audience-check.sh
+fm-doc-audience-check: ok surfaces=105 local_links=437
+
+# adversarial: same checker with the no-ai-slop entries removed from the inventory
+$ bin/fm-doc-audience-check.sh --inventory <inventory-without-no-ai-slop>
+fm-doc-audience-check: unclassified: .agents/skills/no-ai-slop/SKILL.md, .agents/skills/no-ai-slop/eval.md
+exit=1
