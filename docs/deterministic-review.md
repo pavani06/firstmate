@@ -58,7 +58,7 @@ A diff changes something when any of three kinds of evidence is present:
 
 - `+`/`-` content lines.
 - A hunk that carries no content line. Git writes an `@@` header only for a region it found different, so a truncated or hand-edited diff whose content lines are gone still counts as a change rather than grading itself empty. Every `@@` header git writes for a whole diff has content under it, so this is deliberate fail-closed insurance against degenerate input, not a rule ordinary diffs meet.
-- A marker for a change that has neither: a created or deleted file (`new file mode` / `deleted file mode`), a rename (`rename from` / `rename to`), a binary file (`Binary files ... differ`), or a mode change (`old mode` / `new mode`).
+- A marker for a change that has neither: a created or deleted file (`new file mode` / `deleted file mode`), a rename (`rename from` / `rename to`), a copy (`copy from` / `copy to`, which git emits under `--find-copies` or `diff.renames=copies`), a binary file (`Binary files ... differ`), or a mode change (`old mode` / `new mode`).
 
 So a pure rename, a chmod, a replaced image, an added blank line and an empty `.gitkeep` are all real changes: `--claim change` passes over them and `--claim no-change` fails.
 A stanza that is only `---`/`+++` header lines, or a bare `+` outside any hunk, changes nothing and counts as empty.
@@ -70,6 +70,9 @@ The lab source instead required the second byte to differ from the marker, which
 A rename changes two paths, and both count as the changed file: the destination from the header, and the source from the stanza's `rename from` line.
 Moving a file out of a directory is a touch of that directory, so `--forbid-path state/` fails on `git mv state/secret.env docs/secret.env` and the coverage block lists the stanza as `state/secret.env -> docs/secret.env`.
 The file limit is unaffected: `--max-files` still counts one changed file per `diff --git` stanza.
+
+A copy names two paths but changes only one.
+Its source is read, not written, so the coverage block lists the stanza as `state/secret.env -> docs/secret.env` while only the destination enters the path assertions: `--forbid-path docs/` fails on a copy into `docs/`, and `--forbid-path state/` does not fail on a copy out of an untouched `state/`.
 
 File headers are read in the two spellings git writes, and only those: `diff --git a/X b/Y`, and the prefix-less `diff --git X X` that `--no-prefix` or `diff.noprefix=true` produces for a non-rename, accepted only when its two fields are byte-identical.
 Git C-quotes a field whose path needs escaping, independently per field (`diff --git a/plain.md "b/caf\303\251.md"`), so a surrounding quote pair is removed from either or both fields before those two spellings are tested.

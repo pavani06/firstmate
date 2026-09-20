@@ -9,8 +9,8 @@
 # always receives the full line-anchored surface it has to cover. A changed
 # file that carries no hunk at all - a rename, a mode change, a binary
 # rewrite - is listed under its structural markers instead, so no touched file
-# is missing from that surface. A rename is listed as `<from> -> <to>`, because
-# both of its paths were touched.
+# is missing from that surface. A rename and a copy are both listed as
+# `<from> -> <to>`, because git names both paths.
 #
 # The assertions are pure text functions (no model, no network, no
 # randomness), reported as one readable PASS/FAIL verdict:
@@ -45,8 +45,9 @@
 # only edit is a blank line still changed the file), or when it carries a
 # structural marker that changes a file without either: a created or deleted
 # file (new file mode / deleted file mode), a rename (rename from / rename to),
-# a binary file (Binary files ... differ), or a mode change (old mode /
-# new mode).
+# a copy (copy from / copy to, which git emits under --find-copies or
+# diff.renames=copies), a binary file (Binary files ... differ), or a mode
+# change (old mode / new mode).
 #
 # --require and --exclude read the added lines only, never headers, hunk
 # headers, unchanged context lines or removed lines. Matching a context line
@@ -91,7 +92,7 @@ Run deterministic, LLM-free review assertions over one unified diff:
   --max-files N      fail when the diff changes more than N files
 
 A diff changes something when it has +/- content lines, a hunk, or a marker for
-a created, deleted, renamed, mode-changed or binary file. A line is content only
+a created, deleted, renamed, copied, mode-changed or binary file. A line is content only
 inside a hunk body, so the ---/+++ headers never count while a line whose own
 text starts with + or - always does.
 
@@ -219,6 +220,10 @@ fi
 # from the header, and the source from the stanza's `rename from` line. Moving
 # a file out of a directory is a touch of that directory, so both sides enter
 # the path assertions and the coverage skeleton.
+#
+# A copy names two paths but changes only one. Its source is read, not written,
+# so it is named in the coverage skeleton and deliberately kept out of the path
+# assertions: only the destination is a changed file.
 #
 # File headers are read in the two spellings git writes, and only those:
 #   - `diff --git a/X b/Y` yields the b/ (new) path; the first ` b/` splits,
@@ -366,6 +371,16 @@ parse_diff() {
         STRUCTURAL=1
         add_marker renamed
         ;;
+      'copy from '?*)
+        STRUCTURAL=1
+        add_marker copied
+        stanza_from=$(unquote_field "${line#'copy from '}")
+        stanza_file="$stanza_from -> $current"
+        ;;
+      'copy to '?*)
+        STRUCTURAL=1
+        add_marker copied
+        ;;
       'old mode '?* | 'new mode '?*)
         STRUCTURAL=1
         add_marker 'mode change'
@@ -422,7 +437,7 @@ if [ $((ADDED + REMOVED)) -gt 0 ]; then
 elif [ "$HUNK_COUNT" -gt 0 ]; then
   CHANGE_EVIDENCE="$HUNK_COUNT hunk(s) of changed lines"
 elif [ "$STRUCTURAL" -eq 1 ]; then
-  CHANGE_EVIDENCE='a created, deleted, renamed, mode-changed or binary file'
+  CHANGE_EVIDENCE='a created, deleted, renamed, copied, mode-changed or binary file'
 fi
 
 if [ "$CLAIM" = 'change' ] && [ -z "$CHANGE_EVIDENCE" ]; then

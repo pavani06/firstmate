@@ -155,11 +155,10 @@ EMPTY_DIFF="$TMP_ROOT/empty.diff"
 
 # run_case <id> <expected-code> <args...>
 run_case() {
-  local id=$1 want=$2 code=0 out
+  local id=$1 want=$2 code=0
   shift 2
-  out=$(bash "$REVIEW" "$@" 2>&1) || code=$?
+  bash "$REVIEW" "$@" > /dev/null 2>&1 || code=$?
   expect_code "$want" "$code" "lab case $id"
-  printf '%s' "$out" > "$TMP_ROOT/last-out"
 }
 
 # The 12 planted failures: 8 diff-assertion cases, 4 claim cases.
@@ -331,7 +330,7 @@ out=$(bash "$REVIEW" --diff "$RENAME_DIFF" --claim change) && code=0 || code=$?
 expect_code 0 "$code" "a pure rename is a change"
 out=$(bash "$REVIEW" --diff "$RENAME_DIFF" --claim no-change) && code=0 || code=$?
 expect_code 1 "$code" "a pure rename contradicts a no-change claim"
-assert_contains "$out" "a created, deleted, renamed, mode-changed or binary file" \
+assert_contains "$out" "a created, deleted, renamed, copied, mode-changed or binary file" \
   "structural-only failure names what changed"
 
 BINARY_DIFF="$TMP_ROOT/binary.diff"
@@ -824,6 +823,54 @@ out=$(bash "$REVIEW" --diff "$QUOTED_RENAME_DIFF" --forbid-path state/) && code=
 expect_code 1 "$code" "a C-quoted rename source still trips --forbid-path"
 assert_contains "$out" "forbidden path touched: 'state/caf\303\251.env'" \
   "the C-quoted rename source is unquoted before matching"
+
+# --- a copy changes its destination only ------------------------------------
+
+# Git emits copy markers under --find-copies-harder or diff.renames=copies, a
+# plain user-level setting that applies to the documented invocation. A copy
+# creates a file, so it is a change; its source is read, not written, so only
+# the destination is a changed file.
+COPY_REPO="$TMP_ROOT/copy-repo"
+mkdir -p "$COPY_REPO"
+(
+  cd "$COPY_REPO" || exit 1
+  git init -q .
+  git config user.email crew@example.test
+  git config user.name crew
+  mkdir -p state docs
+  printf 'k=v\nl=2\nm=3\nn=4\no=5\n' > state/secret.env
+  git add -A
+  git commit -qm init
+  cp state/secret.env docs/secret.env
+  git add -A
+  git -c diff.renames=copies diff --cached -C --find-copies-harder \
+    > "$TMP_ROOT/copy-only.diff"
+) > /dev/null 2>&1
+
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/copy-only.diff" --claim no-change) && code=0 || code=$?
+expect_code 1 "$code" "a copy contradicts a no-change claim"
+assert_contains "$out" "claim is 'no-change' but the diff has" \
+  "the copy is reported as change evidence"
+
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/copy-only.diff" --claim change) && code=0 || code=$?
+expect_code 0 "$code" "a copy satisfies a change claim"
+assert_contains "$out" "state/secret.env -> docs/secret.env - copied, no hunk" \
+  "the copy names both paths under its marker"
+
+# Only the destination is a changed file: the source was read, not written.
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/copy-only.diff" --forbid-path docs/) && code=0 || code=$?
+expect_code 1 "$code" "a copy into a forbidden prefix fails"
+assert_contains "$out" "forbidden path touched: 'docs/secret.env'" \
+  "the copy destination names the forbidden path"
+
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/copy-only.diff" --forbid-path state/) && code=0 || code=$?
+expect_code 0 "$code" "a copy out of an untouched prefix does not fail"
+
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/copy-only.diff" --allow-path docs/) && code=0 || code=$?
+expect_code 0 "$code" "a copy whose destination is allowed passes"
+
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/copy-only.diff" --max-files 1) && code=0 || code=$?
+expect_code 0 "$code" "a copy counts as one changed file"
 
 # --- forbidden paths --------------------------------------------------------
 
