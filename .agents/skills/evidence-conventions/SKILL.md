@@ -27,13 +27,16 @@ Every claim that work is complete, in the free-text part of a status line, a rep
 
 Rules:
 
-- Fail-closed: a completion claim written in free text without a label is treated as `not run`.
+- Fail-closed: a completion claim an agent writes in free text without a label is treated as `not run`.
+  The rule grades agent-authored claims only; terminal lines emitted by firstmate machinery, such as the parent-channel publication of a child's terminal outcome, are protocol lines owned by the scripts that emit them and are never read as `not run`.
 - `verified` without cited evidence is label abuse; the honest label is `reported done`.
 - The labels are literal lowercase, with a space inside `reported done` and `not run`, so they stay greppable.
 
 In a Firstmate status line the label lives in the free-text part after the state verb, and the state verb itself (`working`, `done`, `blocked`, and the rest) stays exactly as `bin/fm-classify-lib.sh` defines it.
-Fixed-shape gate lines are the exception: a scaffold that dictates a line byte-for-byte, such as the definition-of-done gate `done [at=<epoch>]: PR {url} checks green`, is written exactly as the scaffold spells it, because anchored scrapes read those lines to recover the delivery and any inserted label text breaks the match.
-Never add a label inside such a line, and never read its missing label as `not run`: the gate already is a `verified`-class claim, with the pipeline's green CI as the cited evidence.
+Fixed-shape gate lines are the exception: a scaffold that dictates a line byte-for-byte, such as a definition-of-done gate, is written exactly as the scaffold spells it, because anchored scrapes read those lines to recover the delivery and any inserted label text breaks the match.
+Never add a label inside such a line, and never read its missing label as `not run`; what the line asserts comes from the gate itself.
+The no-mistakes gate `done [at=<epoch>]: PR {url} checks green` is a `verified`-class claim whose cited evidence is the pipeline's green CI.
+The direct-PR gate `done [at=<epoch>]: PR {url}` and the local-only gate `done [at=<epoch>]: ready in branch fm/<id>` are equally fixed-shape and equally label-exempt, but they assert no verification: their verification happens at the configured merge authority before the work lands.
 
 ## Bug verdicts
 
@@ -58,6 +61,7 @@ Any number cited to the fleet (percentage, count, tokens, latency, cost) referen
 Fail-closed: a number without its citation does not enter decisions, reports, or captain-facing summaries; a reader must be able to reproduce the number from the cited command.
 "Should pass" is not a measurement; the honest phrasing names the verification that has not run yet.
 
-A wrong number is retracted, never erased: the original stays in place annotated with a dated retraction, the corrected number arrives with its own command + raw output, and git history is never rewritten to hide a measurement.
+In a durable measurement citation - a report, a decision record, a PR description - a wrong number is retracted, never erased: the original stays in place annotated with a dated retraction, the corrected number arrives with its own command + raw output, and git history is never rewritten to hide a measurement.
+On a curated state surface that has its own owner (`learnings.md` rewrite-and-prune, task notes correct-or-delete), that owner wins and the figure is replaced in place; the replacement number still cites its command and raw output.
 
 Lab config validator reference: pavani06/fleet-lab DEC-007 ships `experiments/config-validator/validate.py`, which rejects a YAML or JSON config on an unknown top-level key, naming the field and its probable match; schema and usage live in that lab's `docs/conventions/config-key-validation.md`, and the tool validates the lab's schema only, so it is not a dependency of any Firstmate path.
