@@ -923,7 +923,7 @@ test_briefs_reference_fleet_prose_skills() {
   brief="$home/data/prose-mate/brief.md"
   assert_grep "this home's \`.agents/skills/i-have-adhd/SKILL.md\`" "$brief" \
     "secondmate charter does not reach the i-have-adhd prose skill from a base it names"
-  assert_grep '`.agents/skills/no-ai-slop/SKILL.md`' "$brief" \
+  assert_grep "\`.agents/skills/no-ai-slop/SKILL.md\`" "$brief" \
     "secondmate charter does not reference the no-ai-slop prose skill host-locally"
   assert_grep "eval.md" "$brief" "secondmate charter does not name the no-ai-slop self-check"
   assert_no_grep "$ROOT/" "$brief" \
