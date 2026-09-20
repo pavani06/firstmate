@@ -87,7 +87,9 @@ Run deterministic, LLM-free review assertions over one unified diff:
   --max-files N      fail when the diff changes more than N files
 
 A diff changes something when it has +/- content lines, a hunk, or a marker for
-a created, deleted, renamed, mode-changed or binary file.
+a created, deleted, renamed, mode-changed or binary file. A line is content only
+inside a hunk body, so the ---/+++ headers never count while a line whose own
+text starts with + or - always does.
 
 --require and --exclude read added lines only, never headers, context lines or
 removed lines.
@@ -194,21 +196,31 @@ if [ "$DIFF_INPUT" != '-' ] && { [ -d "$DIFF_INPUT" ] || [ ! -r "$DIFF_INPUT" ];
 fi
 
 # --- parse the diff ---------------------------------------------------------
-# Follows graders.py, with the file header widened to the prefix-less spelling
-# git emits under diff.noprefix / --no-prefix, so a changed file is never
-# invisible to the path and file-count assertions:
+# Content lines are classified by hunk state, not by their second byte. A hunk
+# body opens at each `@@ <old-range> <new-range> @@` header and closes at the
+# next `diff --git`; inside it, every line starting with `+` or `-` is content,
+# whatever follows that marker, so a line whose own text begins with `+` or `-`
+# is counted and searched like any other. Outside a hunk body no line is
+# content, which is what excludes the `---`/`+++` file headers and a stray
+# `+` or `-` that no hunk introduced.
+#
+# graders.py instead required the second byte to differ from the marker, which
+# hides `++API_KEY = "sk-..."`, a deleted `- ` list item and every other line
+# that repeats its marker. This port declares fidelity to the property that
+# evidence measured - 12/12 detection with 0 false positives - and not to the
+# mechanism that produced it, so the byte test is gone.
+#
+# File headers are read in the two spellings git writes, and only those:
 #   - `diff --git a/X b/Y` yields the b/ (new) path; the first ` b/` splits,
 #     matching the Python regex's non-greedy a/ group, and both paths must be
 #     non-empty, matching its .+? groups
-#   - any other `diff --git X Y` header yields its last field, which is the
-#     same new path git writes in the b/ position
-#   - an added line starts with one `+` followed by a non-`+` byte, so the
-#     `+++` header and a bare `+` line are never counted; its content, with
-#     that `+` stripped, is what --require and --exclude match against
-#   - a removed line starts with one `-` followed by a non-`-` byte, so the
-#     `---` header is never counted
-# Hunk headers are `@@ <old-range> <new-range> @@`, attributed to the file
-# header that precedes them.
+#   - `diff --git X X`, the prefix-less form of `--no-prefix` / diff.noprefix
+#     for a non-rename, yields X - accepted only when the two fields are
+#     byte-identical, which is the only case where the path is unambiguous
+# Any other prefix pair (diff.mnemonicPrefix's `i/X w/X`, a custom src/dst
+# prefix, a prefix-less rename) leaves the changed file unresolvable: its path
+# never enters prefix matching, and a requested --allow-path or --forbid-path
+# fails rather than silently clearing a file it could not name.
 
 CHANGED_FILES=()
 FILE_COUNT=0
@@ -216,23 +228,43 @@ ADDED=0
 REMOVED=0
 STRUCTURAL=0
 HUNK_COUNT=0
+UNRESOLVED_HEADERS=()
 COVERAGE=''
 REQUIRE_SEEN=()
 EXCLUDE_SEEN=()
 
+# Resolve a `diff --git` header's remainder to the changed file, or to the
+# empty string when no spelling names it unambiguously.
+header_path() {  # <text after 'diff --git '>
+  local rest=$1 half
+  case "$rest" in
+    'a/'?*' b/'?*)
+      printf '%s' "${rest#*' b/'}"
+      return 0
+      ;;
+  esac
+  half=$(( (${#rest} - 1) / 2 ))
+  if [ "$half" -gt 0 ] && [ "${rest:half:1}" = ' ' ] \
+    && [ "${rest:0:half}" = "${rest:half + 1}" ]; then
+    printf '%s' "${rest:0:half}"
+  fi
+}
+
 parse_diff() {
-  local line rest ranges added current='(unknown file)' i
+  local line rest ranges body in_hunk=0 current='(unknown file)' i
   local nreq=${#REQUIRE[@]} nexc=${#EXCLUDE[@]}
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
       'diff --git '*)
+        in_hunk=0
         rest=${line#'diff --git '}
-        case "$rest" in
-          'a/'?*' b/'?*) current=${rest#*' b/'} ;;
-          *' '?*) current=${rest##* } ;;
-          *) current='(unknown file)' ;;
-        esac
-        CHANGED_FILES+=("$current")
+        current=$(header_path "$rest")
+        if [ -z "$current" ]; then
+          current="(unresolved path: $rest)"
+          UNRESOLVED_HEADERS+=("$line")
+        else
+          CHANGED_FILES+=("$current")
+        fi
         FILE_COUNT=$((FILE_COUNT + 1))
         ;;
       'new file mode '?* | 'deleted file mode '?* | 'rename from '?* \
@@ -243,22 +275,27 @@ parse_diff() {
         STRUCTURAL=1
         ;;
       '@@ '*' @@'*)
+        in_hunk=1
         ranges=${line#'@@ '}
         ranges=${ranges%%' @@'*}
         COVERAGE="${COVERAGE}  $current @@ $ranges @@"$'\n'
         HUNK_COUNT=$((HUNK_COUNT + 1))
         ;;
-      '+'[!+]*)
+      '+'*)
+        [ "$in_hunk" -eq 1 ] || continue
         ADDED=$((ADDED + 1))
-        added=${line#+}
+        body=${line#+}
         for ((i = 0; i < nreq; i++)); do
-          case "$added" in *"${REQUIRE[i]}"*) REQUIRE_SEEN[i]=1 ;; esac
+          case "$body" in *"${REQUIRE[i]}"*) REQUIRE_SEEN[i]=1 ;; esac
         done
         for ((i = 0; i < nexc; i++)); do
-          case "$added" in *"${EXCLUDE[i]}"*) EXCLUDE_SEEN[i]=1 ;; esac
+          case "$body" in *"${EXCLUDE[i]}"*) EXCLUDE_SEEN[i]=1 ;; esac
         done
         ;;
-      '-'[!-]*) REMOVED=$((REMOVED + 1)) ;;
+      '-'*)
+        [ "$in_hunk" -eq 1 ] || continue
+        REMOVED=$((REMOVED + 1))
+        ;;
     esac
   done
   return 0
@@ -309,7 +346,14 @@ done
 
 # --- allowed and forbidden paths --------------------------------------------
 
-if [ "${#ALLOW_PATHS[@]}" -gt 0 ] && [ "$FILE_COUNT" -gt 0 ]; then
+if { [ "${#ALLOW_PATHS[@]}" -gt 0 ] || [ "${#FORBID_PATHS[@]}" -gt 0 ]; } \
+  && [ "${#UNRESOLVED_HEADERS[@]}" -gt 0 ]; then
+  for header in "${UNRESOLVED_HEADERS[@]}"; do
+    failures="${failures}  - changed file unresolvable from its header, so its path cannot be asserted: '$header'"$'\n'
+  done
+fi
+
+if [ "${#ALLOW_PATHS[@]}" -gt 0 ] && [ "${#CHANGED_FILES[@]}" -gt 0 ]; then
   for changed in "${CHANGED_FILES[@]}"; do
     allowed=0
     for prefix in "${ALLOW_PATHS[@]}"; do
@@ -326,7 +370,7 @@ if [ "${#ALLOW_PATHS[@]}" -gt 0 ] && [ "$FILE_COUNT" -gt 0 ]; then
   done
 fi
 
-if [ "${#FORBID_PATHS[@]}" -gt 0 ] && [ "$FILE_COUNT" -gt 0 ]; then
+if [ "${#FORBID_PATHS[@]}" -gt 0 ] && [ "${#CHANGED_FILES[@]}" -gt 0 ]; then
   for prefix in "${FORBID_PATHS[@]}"; do
     for changed in "${CHANGED_FILES[@]}"; do
       case "$changed" in

@@ -11,7 +11,7 @@ The assertions are a port of the two deterministic graders from Duolingo's engin
 The lab evidence (DEC-002a) measured 12/12 detection of planted synthetic failures and 0 false positives across 10 real merged firstmate PRs.
 The port keeps the validated diff-parsing semantics, and `tests/fm-diff-assert.test.sh` carries the lab's 12 planted failures and 3 clean controls one-for-one so that measured property is what CI holds.
 
-What the port is faithful to is that measured property, not the lab source's prose parser.
+What the port is faithful to is that measured property, not the lab source's mechanism.
 The lab classified a free-text claim by matching phrase lists against it, and no version of that classifier held the zero-false-positive line: it read "unresolved" as resolve, "prefix" as fix, "no functional changes" as a claim of an empty diff, and "done investigating" as an edit.
 So the classifier is gone on purpose. `--claim` takes the verdict itself - `change` or `no-change` - and free text goes to `--note`, which is printed and never interpreted.
 With no language to parse, the claim assertion is a comparison between a typed verdict and a parsed diff fact, and this class of false positive cannot occur.
@@ -37,6 +37,7 @@ Producing the skeleton needs nothing beyond the diff itself - no CLI, no depende
 - Required text: every `--require` substring must appear on some added line.
 - Forbidden text: no `--exclude` substring may appear on any added line, for example `sk-` or a stray debug print.
   Both read added lines only - never headers, hunk headers, unchanged context lines or removed lines - because matching a context line would fail a change for code it did not introduce, and matching a removed line or a file header would clear a `--require` the change never satisfied.
+  An added line is any line starting with `+` inside a hunk body, and what they match against is its text with that `+` removed.
 - Allowed paths: every changed file must sit under some `--allow-path` prefix.
 - Forbidden paths: any changed file under a `--forbid-path` prefix fails, for example to notice a worker that touched `state/` or `.env`.
 - File limit: more than `--max-files` changed files fails.
@@ -52,7 +53,13 @@ A diff changes something when any of three kinds of evidence is present:
 So a pure rename, a chmod, a replaced image, an added blank line and an empty `.gitkeep` are all real changes: `--claim change` passes over them and `--claim no-change` fails.
 A stanza that is only `---`/`+++` header lines, or a bare `+` outside any hunk, changes nothing and counts as empty.
 
-File headers are read in both spellings git writes, `diff --git a/X b/Y` and the prefix-less `diff --git X Y` produced by `--no-prefix` or `diff.noprefix=true`, so a changed file is never invisible to the path and file-count assertions.
+A line is content only inside a hunk body, which opens at each `@@` header and closes at the next `diff --git`.
+Inside one, every line starting with `+` or `-` is content whatever follows that marker, so `++API_KEY = "sk-..."` and a deleted `- ` list item are counted and searched like any other line.
+The lab source instead required the second byte to differ from the marker, which hid both; the property that evidence measured is what this port keeps, not the mechanism that produced it.
+
+File headers are read in the two spellings git writes, and only those: `diff --git a/X b/Y`, and the prefix-less `diff --git X X` that `--no-prefix` or `diff.noprefix=true` produces for a non-rename, accepted only when its two fields are byte-identical.
+Any other prefix pair - `diff.mnemonicPrefix`'s `i/X w/X`, a custom src/dst prefix, a prefix-less rename - leaves the changed file unresolvable.
+Such a file still counts toward `--max-files`, but its path never enters prefix matching: a requested `--allow-path` or `--forbid-path` fails and names the header instead, because a path guard that cannot name its file must not clear it.
 
 ## Running it
 

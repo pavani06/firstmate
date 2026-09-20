@@ -375,10 +375,10 @@ expect_code 0 "$code" "deleting an empty tracked file is a change"
 out=$(bash "$REVIEW" --diff "$DELFILE_DIFF" --claim no-change) && code=0 || code=$?
 expect_code 1 "$code" "deleting an empty tracked file contradicts a no-change claim"
 
-# --- diff-parsing edge cases (validated Python semantics) -------------------
+# --- content lines are classified by hunk state -----------------------------
 
-# A bare `+` line is an added line only when followed by a non-`+` byte, so
-# the validated grader never counts it; these cases pin that faithful port.
+# Outside a hunk body nothing is content, which is what excludes the ---/+++
+# file headers and a stray marker no hunk introduced.
 BARE_DIFF="$TMP_ROOT/bare.diff"
 write_diff "$BARE_DIFF" \
   'diff --git a/x b/x' \
@@ -386,6 +386,52 @@ write_diff "$BARE_DIFF" \
   '+'
 out=$(bash "$REVIEW" --diff "$BARE_DIFF" --claim change) && code=0 || code=$?
 expect_code 1 "$code" "a bare plus outside any hunk is not counted as a change"
+
+out=$(bash "$REVIEW" --diff "$BARE_DIFF" --require 'b/x') && code=0 || code=$?
+expect_code 1 "$code" "a +++ header outside any hunk is not searchable content"
+
+# Inside a hunk body every line starting with + or - is content, whatever
+# follows the marker. A line whose own text begins with + or - is exactly how
+# a diff of a diff looks, and the secret and debug-print guards must see it.
+MARKER_DIFF="$TMP_ROOT/repeated-marker.diff"
+write_diff "$MARKER_DIFF" \
+  'diff --git a/t b/t' \
+  '--- a/t' \
+  '+++ b/t' \
+  '@@ -1,2 +1,4 @@' \
+  ' header' \
+  '++ print("DEBUG: starting")' \
+  '++API_KEY = "sk-1234567890abcdef"'
+
+out=$(bash "$REVIEW" --diff "$MARKER_DIFF" --exclude 'sk-') && code=0 || code=$?
+expect_code 1 "$code" "--exclude sees a secret on a line whose text starts with +"
+assert_contains "$out" "forbidden text on an added line: 'sk-'" \
+  "repeated-marker --exclude failure names the substring"
+
+out=$(bash "$REVIEW" --diff "$MARKER_DIFF" --exclude 'print("DEBUG') && code=0 || code=$?
+expect_code 1 "$code" "--exclude sees a debug print on a line whose text starts with +"
+
+out=$(bash "$REVIEW" --diff "$MARKER_DIFF" --require 'API_KEY') && code=0 || code=$?
+expect_code 0 "$code" "--require is satisfied by a line whose text starts with +"
+assert_contains "$out" "PASS (files=1, +2/-0)" \
+  "both repeated-marker lines are counted as added"
+
+# A deleted markdown or YAML bullet lands as `-- item`; the removal count must
+# report it rather than leaning on the hunk to rescue the verdict.
+BULLET_DIFF="$TMP_ROOT/bullet.diff"
+write_diff "$BULLET_DIFF" \
+  'diff --git a/l.md b/l.md' \
+  '--- a/l.md' \
+  '+++ b/l.md' \
+  '@@ -1,2 +1,1 @@' \
+  ' intro' \
+  '-- a yaml list item'
+out=$(bash "$REVIEW" --diff "$BULLET_DIFF" --claim change) && code=0 || code=$?
+expect_code 0 "$code" "deleting a bullet line is a change"
+assert_contains "$out" "PASS (files=1, +0/-1)" "the deleted bullet is counted as removed"
+out=$(bash "$REVIEW" --diff "$BULLET_DIFF" --claim no-change) && code=0 || code=$?
+assert_contains "$out" "claim is 'no-change' but the diff has +0/-1 lines" \
+  "the no-change failure names the real removal count"
 
 # Git writes an @@ header only for a region it found different, so a hunk whose
 # only edit is a blank line still changed the file. Both directions matter: the
@@ -403,8 +449,8 @@ out=$(bash "$REVIEW" --diff "$BLANK_ADD_DIFF" --claim change) && code=0 || code=
 expect_code 0 "$code" "adding a blank line is a change"
 out=$(bash "$REVIEW" --diff "$BLANK_ADD_DIFF" --claim no-change) && code=0 || code=$?
 expect_code 1 "$code" "adding a blank line contradicts a no-change claim"
-assert_contains "$out" "claim is 'no-change' but the diff has 1 hunk(s) of changed lines" \
-  "blank-line failure names the hunk evidence"
+assert_contains "$out" "claim is 'no-change' but the diff has +1/-0 lines" \
+  "the added blank line is counted"
 
 BLANK_DEL_DIFF="$TMP_ROOT/blank-del.diff"
 write_diff "$BLANK_DEL_DIFF" \
@@ -439,9 +485,23 @@ expect_code 1 "$code" "a --- line is never counted as a removal"
 
 write_diff "$REM_DIFF" \
   'diff --git a/x b/x' \
+  '--- a/x' \
+  '+++ b/x' \
+  '@@ -1 +0,0 @@' \
   '-old line'
 out=$(bash "$REVIEW" --diff "$REM_DIFF" --claim no-change) && code=0 || code=$?
 expect_code 1 "$code" "a removal is a real change for the consistency check"
+
+# A hunk header with no content line under it still proves the region changed.
+TRUNC_DIFF="$TMP_ROOT/truncated.diff"
+write_diff "$TRUNC_DIFF" \
+  'diff --git a/x b/x' \
+  '--- a/x' \
+  '+++ b/x' \
+  '@@ -1,2 +1,3 @@'
+out=$(bash "$REVIEW" --diff "$TRUNC_DIFF" --claim no-change) && code=0 || code=$?
+expect_code 1 "$code" "a hunk with no content line still contradicts a no-change claim"
+assert_contains "$out" "1 hunk(s) of changed lines" "hunk evidence names itself"
 
 # The b/ path is the changed path: a rename is tracked under its new name.
 REN_DIFF="$TMP_ROOT/ren.diff"
@@ -476,6 +536,46 @@ assert_contains "$out" "too many changed files: 1 > 0" "prefix-less header count
 
 out=$(bash "$REVIEW" --diff "$NOPREFIX_DIFF" --allow-path docs/) && code=0 || code=$?
 expect_code 1 "$code" "prefix-less header is checked against --allow-path"
+
+# Only the two spellings git writes name a path unambiguously. Any other
+# prefix pair leaves the file unresolvable, and a path guard that cannot name
+# its file must fail rather than clear it.
+MNEMONIC_DIFF="$TMP_ROOT/mnemonic.diff"
+write_diff "$MNEMONIC_DIFF" \
+  'diff --git i/state/secret.env w/state/secret.env' \
+  '--- i/state/secret.env' \
+  '+++ w/state/secret.env' \
+  '@@ -1 +1,2 @@' \
+  ' a' \
+  '+b'
+
+out=$(bash "$REVIEW" --diff "$MNEMONIC_DIFF" --forbid-path state/) && code=0 || code=$?
+expect_code 1 "$code" "a mnemonic-prefix header never clears --forbid-path"
+assert_contains "$out" "changed file unresolvable from its header" \
+  "unresolvable header is reported as such"
+assert_not_contains "$out" "w/state/secret.env @@" \
+  "an unresolvable header is never anchored to a prefixed path"
+
+out=$(bash "$REVIEW" --diff "$MNEMONIC_DIFF" --allow-path state/) && code=0 || code=$?
+expect_code 1 "$code" "a mnemonic-prefix header never clears --allow-path"
+assert_not_contains "$out" "outside allowed paths: 'w/state/secret.env'" \
+  "an unresolvable file is not mislabelled as a stray path"
+
+# A prefix-less rename names two different files, so it is unresolvable too.
+NOPREFIX_REN_DIFF="$TMP_ROOT/noprefix-rename.diff"
+write_diff "$NOPREFIX_REN_DIFF" \
+  'diff --git state/old.env state/new.env' \
+  'similarity index 100%' \
+  'rename from state/old.env' \
+  'rename to state/new.env'
+out=$(bash "$REVIEW" --diff "$NOPREFIX_REN_DIFF" --forbid-path state/) && code=0 || code=$?
+expect_code 1 "$code" "a prefix-less rename never clears --forbid-path"
+
+# An unresolvable file still counts toward the file limit, which needs no path.
+out=$(bash "$REVIEW" --diff "$MNEMONIC_DIFF" --max-files 0) && code=0 || code=$?
+expect_code 1 "$code" "an unresolvable file is still counted by --max-files"
+out=$(bash "$REVIEW" --diff "$MNEMONIC_DIFF" --claim change) && code=0 || code=$?
+expect_code 0 "$code" "an unresolvable header does not disturb the claim assertion"
 
 # --- forbidden paths --------------------------------------------------------
 
@@ -554,7 +654,7 @@ assert_contains "$out" "COVERAGE (hunks=0)" "empty diff reports zero hunks"
 
 # --- CLI contract -----------------------------------------------------------
 
-out=$(printf '%s\n' 'diff --git a/x b/x' '--- a/x' '+++ b/x' '+y' \
+out=$(printf '%s\n' 'diff --git a/x b/x' '--- a/x' '+++ b/x' '@@ -0,0 +1 @@' '+y' \
   | bash "$REVIEW" --diff - --claim change) && code=0 || code=$?
 expect_code 0 "$code" "stdin input works with --diff -"
 
@@ -590,8 +690,8 @@ out=$(bash "$REVIEW" --diff '' --claim change 2>&1) && code=0 || code=$?
 expect_code 2 "$code" "empty --diff value is a usage error"
 
 # A final line without a trailing newline is still parsed.
-out=$(printf 'diff --git a/x b/x\n+new' | bash "$REVIEW" --diff - --claim change) \
-  && code=0 || code=$?
+out=$(printf 'diff --git a/x b/x\n@@ -0,0 +1 @@\n+new' \
+  | bash "$REVIEW" --diff - --claim change) && code=0 || code=$?
 expect_code 0 "$code" "unterminated final line is counted"
 assert_contains "$out" "PASS (files=1, +1/-0)" "unterminated final added line is counted"
 
