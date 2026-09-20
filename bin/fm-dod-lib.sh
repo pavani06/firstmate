@@ -250,7 +250,7 @@ fm_dod_block() {  # <mode> <task-id> <firstmate-root>
   fi
   local diff_pass
   # shellcheck disable=SC2016  # single quotes are deliberate: the backtick-wrapped command is literal brief text that must reach the reading agent verbatim; only the '"$root"' break-out interpolates.
-  diff_pass='Before that, run the deterministic diff pass over your branch and report what it printed: `git diff <default-branch>...HEAD | '"$root"'/bin/fm-diff-assert.sh --diff - --claim change --note "{your one-line summary}"` (use `--claim no-change` when you deliberately changed nothing). It asserts diff facts only - it is not a gate, it blocks nothing, and it replaces no existing authority.'
+  diff_pass='Before reporting done, run the deterministic diff pass over your committed branch and report what it printed: `git diff <default-branch>...HEAD | '"$root"'/bin/fm-diff-assert.sh --diff - --claim change --note "{your one-line summary}"` (use `--claim no-change` when you deliberately changed nothing). It asserts diff facts only - it is not a gate, it blocks nothing, and it replaces no existing authority.'
   case "$mode" in
     direct-PR)
       cat <<EOF

@@ -394,6 +394,13 @@ test_dod_renders_deterministic_diff_pass() {
       "$mode: DOD lost the no-change verdict instruction"
     assert_grep "it is not a gate, it blocks nothing, and it replaces no existing authority" "$brief" \
       "$mode: DOD lost the non-gating promise beside the diff pass"
+    # The pass reads `git diff <base>...HEAD`, which only shows committed work,
+    # so the sentence must name when it runs instead of leaning on a pronoun
+    # that resolves backwards to the neighbouring commit or rebase sentence.
+    assert_grep "Before reporting done, run the deterministic diff pass over your committed branch" \
+      "$brief" "$mode: DOD diff pass lost its explicit antecedent"
+    assert_no_grep "Before that, run the deterministic diff pass" "$brief" \
+      "$mode: DOD diff pass still opens on an ambiguous antecedent"
   done
   pass "fm-brief.sh: every delivery mode renders the deterministic diff pass"
 }
