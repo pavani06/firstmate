@@ -927,6 +927,10 @@ test_briefs_reference_fleet_prose_skills() {
     "no-mistakes brief does not scope the PR prose rules to what the crewmate supplies"
   assert_no_grep "done summary" "$brief" \
     "no-mistakes brief counts the status done line as PR copy"
+  assert_grep "The prose skills never restyle the captain's words you carry into" "$brief" \
+    "no-mistakes brief does not exempt the captain's words from the prose skills"
+  assert_no_grep "copied verbatim" "$brief" \
+    "no-mistakes brief contradicts its own by-reference --intent rule"
   FM_HOME="$home" FM_SECONDMATE_CHARTER='Supervise assigned work.' \
     "$ROOT/bin/fm-brief.sh" prose-mate --secondmate --no-projects >/dev/null 2>&1 \
     || fail "secondmate scaffold failed"
