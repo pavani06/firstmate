@@ -290,7 +290,7 @@ EOF
 Delivery contract: mode=no-mistakes
 The task is complete only when committed on your branch.
 $prose_line
-The pipeline's own agent writes the PR body in this mode, so the PR text those skills reach is the text you write or supply yourself: the done summary, a title or summary a gate asks you for, and any wording you hand back through \`no-mistakes axi respond\`.
+The pipeline's own agent writes the PR body in this mode, so the only PR text those skills reach is text you write yourself, such as a title or summary a gate asks you for.
 They never reach the \`--intent\` string below, which is the captain's words copied verbatim and is never rewritten.
 When you believe it is complete, append \`done [at=<epoch>]: {summary}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.

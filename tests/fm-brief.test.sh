@@ -923,8 +923,10 @@ test_briefs_reference_fleet_prose_skills() {
   brief="$home/data/no-mistakes/brief.md"
   assert_grep "any PR text you write or supply yourself" "$brief" \
     "no-mistakes brief claims prose coverage over PR text the crewmate does not author"
-  assert_grep "The pipeline's own agent writes the PR body in this mode" "$brief" \
+  assert_grep "the only PR text those skills reach is text you write yourself" "$brief" \
     "no-mistakes brief does not scope the PR prose rules to what the crewmate supplies"
+  assert_no_grep "done summary" "$brief" \
+    "no-mistakes brief counts the status done line as PR copy"
   FM_HOME="$home" FM_SECONDMATE_CHARTER='Supervise assigned work.' \
     "$ROOT/bin/fm-brief.sh" prose-mate --secondmate --no-projects >/dev/null 2>&1 \
     || fail "secondmate scaffold failed"
