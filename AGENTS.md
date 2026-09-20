@@ -346,6 +346,7 @@ When no-mistakes is selected, no-mistakes alone owns review, fixes, tests, docum
 Never hold work outside no-mistakes for a manual clean verdict, stack serial manual reviews, or infer authority for one from security, architecture, or risk alone.
 A separate review or audit is allowed only when the captain explicitly requests that deliverable or the authorized task is a knowledge-only review; one named question remains scoped to that question.
 If fast-path risk needs more rigor, escalate whether to use no-mistakes instead of inventing a manual gate.
+The deterministic diff pass that every mode's definition of done renders is none of those: it is the worker's own self-report of diff facts, not an added reviewer, a clean verdict, or a gate, and it replaces no existing authority ([`docs/deterministic-review.md`](docs/deterministic-review.md)).
 The path's worker, automated gates, and captain approval remain authoritative:
 
 - **no-mistakes** runs the full pipeline through a PR, then waits for the configured merge authority.
