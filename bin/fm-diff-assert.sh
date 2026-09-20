@@ -233,9 +233,15 @@ fi
 #     for a non-rename, yields X - accepted only when the two fields are
 #     byte-identical, which is the only case where the path is unambiguous
 # Any other prefix pair (diff.mnemonicPrefix's `i/X w/X`, a custom src/dst
-# prefix, a prefix-less rename) leaves the changed file unresolvable: its path
-# never enters prefix matching, and a requested --allow-path or --forbid-path
-# fails rather than silently clearing a file it could not name.
+# prefix) leaves the changed file unresolvable, as does a hunk that no header
+# introduced: its path never enters prefix matching, and a requested
+# --allow-path or --forbid-path fails rather than silently clearing a file it
+# could not name.
+#
+# A rename or copy stanza is the exception, because its `rename to` / `copy to`
+# line carries the destination as one unambiguous field. That names the file
+# whatever the header spelling was, so such a stanza resolves from its own body
+# and is never reported unresolvable.
 
 CHANGED_FILES=()
 FILE_COUNT=0
@@ -320,11 +326,30 @@ add_marker() {  # <label>
   stanza_markers="${stanza_markers}${stanza_markers:+, }$1"
 }
 
-# Close the stanza being parsed. A stanza that carried no hunk still names a
-# changed file, so it enters the coverage skeleton under its markers rather
+# A rename or copy destination arrives as one unambiguous field, so it names
+# the changed file even when the stanza's header spelling could not.
+resolve_destination() {  # <raw destination field>
+  local dest
+  dest=$(unquote_field "$1")
+  [ -n "$dest" ] || return 0
+  if [ "$stanza_unresolved" -eq 1 ]; then
+    stanza_unresolved=0
+    CHANGED_FILES+=("$dest")
+  fi
+  current=$dest
+  stanza_file="${stanza_from:+$stanza_from -> }$dest"
+}
+
+# Close the stanza being parsed. A stanza still unresolved at its close is
+# recorded here rather than at its header, because a later `rename to` or
+# `copy to` line can still name the file. A stanza that carried no hunk names a
+# changed file too, so it enters the coverage skeleton under its markers rather
 # than a line range; otherwise its hunks already listed it.
 flush_stanza() {
   [ -n "$stanza_file" ] || return 0
+  if [ "$stanza_unresolved" -eq 1 ]; then
+    UNRESOLVED_HEADERS+=("$stanza_header")
+  fi
   [ "$stanza_hunks" -eq 0 ] || return 0
   COVERAGE="${COVERAGE}  $stanza_file - ${stanza_markers:+$stanza_markers, }no hunk"$'\n'
 }
@@ -332,6 +357,7 @@ flush_stanza() {
 parse_diff() {
   local line rest ranges body in_hunk=0 current='(unknown file)' i
   local stanza_file='' stanza_hunks=0 stanza_markers='' stanza_from=''
+  local stanza_header='' stanza_unresolved=0
   local nreq=${#REQUIRE[@]} nexc=${#EXCLUDE[@]}
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
@@ -340,11 +366,13 @@ parse_diff() {
         in_hunk=0
         rest=${line#'diff --git '}
         current=$(header_path "$rest")
+        stanza_header=$line
         if [ -z "$current" ]; then
           current="(unresolved path: $rest)"
-          UNRESOLVED_HEADERS+=("$line")
+          stanza_unresolved=1
         else
           CHANGED_FILES+=("$current")
+          stanza_unresolved=0
         fi
         FILE_COUNT=$((FILE_COUNT + 1))
         stanza_file=$current
@@ -370,6 +398,7 @@ parse_diff() {
       'rename to '?*)
         STRUCTURAL=1
         add_marker renamed
+        resolve_destination "${line#'rename to '}"
         ;;
       'copy from '?*)
         STRUCTURAL=1
@@ -380,6 +409,7 @@ parse_diff() {
       'copy to '?*)
         STRUCTURAL=1
         add_marker copied
+        resolve_destination "${line#'copy to '}"
         ;;
       'old mode '?* | 'new mode '?*)
         STRUCTURAL=1
@@ -391,6 +421,11 @@ parse_diff() {
         ;;
       '@@ '*' @@'*)
         in_hunk=1
+        if [ -z "$stanza_file" ]; then
+          stanza_file='(unknown file)'
+          stanza_header='(no diff --git header)'
+          stanza_unresolved=1
+        fi
         ranges=${line#'@@ '}
         ranges=${ranges%%' @@'*}
         COVERAGE="${COVERAGE}  $stanza_file @@ $ranges @@"$'\n'

@@ -79,7 +79,8 @@ Git C-quotes a field whose path needs escaping, independently per field (`diff -
 Only that quote pair comes off: the C escapes inside the field are left as git wrote them, so such a path is matched in its escaped spelling (`docs/caf\303\251.md`, not `docs/café.md`).
 Prefixes for `--allow-path` and `--forbid-path` therefore have to be ASCII to match a C-quoted path - `--forbid-path docs/` works, `--forbid-path 'docs/café'` cannot match. Decoding git's escape alphabet is deliberately not done until a concrete need appears.
 Git leaves a path containing spaces unquoted, which can make an `a/X b/Y` header carry a second ` b/` (`a/plan b/notes.md b/state b/secret.env`); nothing in the header says which one splits it, so that header is unresolvable too rather than resolved to an invented path.
-Any other prefix pair - `diff.mnemonicPrefix`'s `i/X w/X`, a custom src/dst prefix, a prefix-less rename - leaves the changed file unresolvable.
+Any other prefix pair - `diff.mnemonicPrefix`'s `i/X w/X`, a custom src/dst prefix - leaves the changed file unresolvable, as does a hunk that no header introduced.
+A rename or copy stanza is the exception: its `rename to` / `copy to` line carries the destination as one unambiguous field, so the stanza resolves from its own body whatever its header spelling was, and a prefix-less or ambiguous rename is named rather than refused.
 Such a file still counts toward `--max-files`, but its path never enters prefix matching: a requested `--allow-path` or `--forbid-path` fails and names the header instead, because a path guard that cannot name its file must not clear it.
 
 ## Running it

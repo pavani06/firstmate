@@ -560,7 +560,8 @@ expect_code 1 "$code" "a mnemonic-prefix header never clears --allow-path"
 assert_not_contains "$out" "outside allowed paths: 'w/state/secret.env'" \
   "an unresolvable file is not mislabelled as a stray path"
 
-# A prefix-less rename names two different files, so it is unresolvable too.
+# A prefix-less rename header names two different fields, but the stanza's own
+# `rename to` line names the destination exactly, so the stanza resolves.
 NOPREFIX_REN_DIFF="$TMP_ROOT/noprefix-rename.diff"
 write_diff "$NOPREFIX_REN_DIFF" \
   'diff --git state/old.env state/new.env' \
@@ -569,6 +570,10 @@ write_diff "$NOPREFIX_REN_DIFF" \
   'rename to state/new.env'
 out=$(bash "$REVIEW" --diff "$NOPREFIX_REN_DIFF" --forbid-path state/) && code=0 || code=$?
 expect_code 1 "$code" "a prefix-less rename never clears --forbid-path"
+assert_contains "$out" "forbidden path touched: 'state/new.env'" \
+  "the prefix-less rename destination is named, not refused"
+assert_not_contains "$out" "unresolvable" \
+  "a rename resolved from its own body is not an unresolvable header"
 
 # An unresolvable file still counts toward the file limit, which needs no path.
 out=$(bash "$REVIEW" --diff "$MNEMONIC_DIFF" --max-files 0) && code=0 || code=$?
@@ -709,8 +714,6 @@ mkdir -p "$AMBIG_REPO"
 out=$(bash "$REVIEW" --diff "$TMP_ROOT/ambiguous.diff" --forbid-path 'state b/') \
   && code=0 || code=$?
 expect_code 1 "$code" "an ambiguous rename header never clears --forbid-path"
-assert_contains "$out" "changed file unresolvable from its header" \
-  "the ambiguous header is reported as unresolvable"
 assert_not_contains "$out" "notes.md b/state b/secret.env - " \
   "no invented path reaches the coverage skeleton"
 
@@ -719,6 +722,21 @@ out=$(bash "$REVIEW" --diff "$TMP_ROOT/ambiguous.diff" --allow-path 'state b/') 
 expect_code 1 "$code" "an ambiguous rename header never clears --allow-path"
 assert_not_contains "$out" "outside allowed paths: 'notes.md b/" \
   "an ambiguous header is not mislabelled as a stray path"
+
+# An ambiguous header with no rename or copy line to name its file has nothing
+# else to resolve it, so it stays refused rather than picking one split.
+AMBIG_EDIT_DIFF="$TMP_ROOT/ambiguous-edit.diff"
+write_diff "$AMBIG_EDIT_DIFF" \
+  'diff --git a/plan b/notes.md b/plan b/notes.md' \
+  '@@ -1 +1,2 @@' \
+  ' n' \
+  '+more'
+out=$(bash "$REVIEW" --diff "$AMBIG_EDIT_DIFF" --forbid-path 'plan b/') && code=0 || code=$?
+expect_code 1 "$code" "an ambiguous edit header never clears --forbid-path"
+assert_contains "$out" "changed file unresolvable from its header" \
+  "the ambiguous edit header is reported as unresolvable"
+assert_not_contains "$out" "forbidden path touched: 'notes.md b/" \
+  "no invented path reaches the forbidden-path guard"
 
 # Headers carrying exactly one " b/" keep resolving, including the shapes that
 # look ambiguous but are not.
@@ -871,6 +889,104 @@ expect_code 0 "$code" "a copy whose destination is allowed passes"
 
 out=$(bash "$REVIEW" --diff "$TMP_ROOT/copy-only.diff" --max-files 1) && code=0 || code=$?
 expect_code 0 "$code" "a copy counts as one changed file"
+
+# --- a rename names its destination whatever the header spelling ------------
+
+# diff.noprefix is an ordinary user-level git setting, and under it every
+# rename header carries two differing fields. The stanza's own `rename to` line
+# names the destination, so a clean diff must not be failed over its spelling.
+NOPREFIX_REPO="$TMP_ROOT/noprefix-rename-repo"
+mkdir -p "$NOPREFIX_REPO"
+(
+  cd "$NOPREFIX_REPO" || exit 1
+  git init -q .
+  git config user.email crew@example.test
+  git config user.name crew
+  git config diff.noprefix true
+  mkdir -p src docs
+  printf 'x\n' > src/one.txt
+  printf 'k\n' > docs/keep.md
+  git add -A
+  git commit -qm init
+  git mv src/one.txt src/two.txt
+  printf 'k\ny\n' > docs/keep.md
+  git add -A
+  git diff --cached -M > "$TMP_ROOT/noprefix-rename-real.diff"
+) > /dev/null 2>&1
+
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/noprefix-rename-real.diff" \
+  --allow-path src/ --allow-path docs/) && code=0 || code=$?
+expect_code 0 "$code" "a clean prefix-less diff with a rename passes --allow-path"
+assert_not_contains "$out" "unresolvable" "no header in a clean rename diff is unresolvable"
+assert_contains "$out" "src/one.txt -> src/two.txt - renamed, no hunk" \
+  "the prefix-less rename names both of its paths"
+
+out=$(bash "$REVIEW" --diff "$TMP_ROOT/noprefix-rename-real.diff" --forbid-path src/) \
+  && code=0 || code=$?
+expect_code 1 "$code" "the prefix-less rename still trips a forbidden prefix"
+
+# An ambiguous " b/" header resolves the same way, from its own rename lines.
+AMBIG_REN_DIFF="$TMP_ROOT/ambiguous-rename-body.diff"
+write_diff "$AMBIG_REN_DIFF" \
+  'diff --git a/plan b/notes.md b/state b/secret.env' \
+  'similarity index 100%' \
+  'rename from plan b/notes.md' \
+  'rename to state b/secret.env'
+out=$(bash "$REVIEW" --diff "$AMBIG_REN_DIFF" --forbid-path 'state b/') && code=0 || code=$?
+expect_code 1 "$code" "an ambiguous rename header still trips the forbidden prefix"
+assert_contains "$out" "forbidden path touched: 'state b/secret.env'" \
+  "the ambiguous rename destination comes from its rename-to line"
+assert_contains "$out" "plan b/notes.md -> state b/secret.env - renamed, no hunk" \
+  "the ambiguous rename names both of its real paths"
+
+out=$(bash "$REVIEW" --diff "$AMBIG_REN_DIFF" --allow-path 'plan b/' --allow-path 'state b/') \
+  && code=0 || code=$?
+expect_code 0 "$code" "an ambiguous rename passes when both of its real paths are allowed"
+
+# A copy destination resolves from its own `copy to` line too.
+NOPREFIX_COPY_DIFF="$TMP_ROOT/noprefix-copy.diff"
+write_diff "$NOPREFIX_COPY_DIFF" \
+  'diff --git state/keep.env docs/copy.env' \
+  'similarity index 100%' \
+  'copy from state/keep.env' \
+  'copy to docs/copy.env'
+out=$(bash "$REVIEW" --diff "$NOPREFIX_COPY_DIFF" --forbid-path docs/) && code=0 || code=$?
+expect_code 1 "$code" "a prefix-less copy destination trips --forbid-path"
+assert_contains "$out" "forbidden path touched: 'docs/copy.env'" \
+  "the copy destination comes from its copy-to line"
+out=$(bash "$REVIEW" --diff "$NOPREFIX_COPY_DIFF" --forbid-path state/) && code=0 || code=$?
+expect_code 0 "$code" "a copy source stays out of the path assertions"
+
+# A stanza with no rename/copy line to name it stays unresolvable.
+out=$(bash "$REVIEW" --diff "$MNEMONIC_DIFF" --forbid-path state/) && code=0 || code=$?
+expect_code 1 "$code" "a stanza with nothing to name it is still refused"
+assert_contains "$out" "changed file unresolvable from its header" \
+  "the unnameable stanza still reports itself unresolvable"
+
+# --- a diff with no file header at all --------------------------------------
+
+# A unified diff that git did not produce can carry hunks under no header. Its
+# file cannot be named, so a path assertion must refuse it rather than clear it.
+HEADERLESS_DIFF="$TMP_ROOT/headerless.diff"
+write_diff "$HEADERLESS_DIFF" \
+  '--- a/state/secret.env' \
+  '+++ b/state/secret.env' \
+  '@@ -1 +1,2 @@' \
+  ' a' \
+  '+SECRET=1'
+
+out=$(bash "$REVIEW" --diff "$HEADERLESS_DIFF" --forbid-path state/) && code=0 || code=$?
+expect_code 1 "$code" "a headerless diff never clears --forbid-path"
+assert_contains "$out" "changed file unresolvable from its header" \
+  "a headerless hunk is reported unresolvable"
+
+out=$(bash "$REVIEW" --diff "$HEADERLESS_DIFF" --allow-path docs/) && code=0 || code=$?
+expect_code 1 "$code" "a headerless diff never clears --allow-path"
+
+out=$(bash "$REVIEW" --diff "$HEADERLESS_DIFF" --claim change) && code=0 || code=$?
+expect_code 0 "$code" "a headerless diff still counts its content as a change"
+assert_contains "$out" "(unknown file) @@ -1 +1,2 @@" \
+  "a headerless hunk is anchored to a named placeholder, not a blank"
 
 # --- forbidden paths --------------------------------------------------------
 

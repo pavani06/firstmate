@@ -376,6 +376,44 @@ test_no_mistakes_dod_wording() {
   pass "fm-brief.sh: no-mistakes DOD keeps its apostrophe prose and bans --yes outright"
 }
 
+# The deterministic diff pass is the only thing that carries the review layer
+# into a worker's hands, so every delivery mode must render it, with the
+# absolute firstmate path interpolated and the non-gating promise intact.
+test_dod_renders_deterministic_diff_pass() {
+  local home id brief mode
+  home="$TMP_ROOT/diff-pass-home"
+  mkdir -p "$home/data"
+  for mode in no-mistakes direct-PR local-only; do
+    id="brief-diff-pass-${mode}"
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode "$mode" >/dev/null 2>&1
+    brief="$home/data/$id/brief.md"
+    assert_present "$brief" "$mode: brief was not scaffolded"
+    assert_grep "$ROOT/bin/fm-diff-assert.sh --diff - --claim change" "$brief" \
+      "$mode: DOD lost the deterministic diff pass invocation"
+    assert_grep "use \`--claim no-change\` when you deliberately changed nothing" "$brief" \
+      "$mode: DOD lost the no-change verdict instruction"
+    assert_grep "it is not a gate, it blocks nothing, and it replaces no existing authority" "$brief" \
+      "$mode: DOD lost the non-gating promise beside the diff pass"
+  done
+  pass "fm-brief.sh: every delivery mode renders the deterministic diff pass"
+}
+
+# fm_dod_block renders an absolute command path, so it refuses rather than
+# emitting a block with a guessed or empty root.
+test_dod_block_requires_firstmate_root() {
+  local out code=0
+  out=$(. "$ROOT/bin/fm-dod-lib.sh"; fm_dod_block no-mistakes some-task 2>/dev/null) || code=$?
+  expect_code 1 "$code" "fm_dod_block accepted a missing firstmate root"
+  assert_equals '' "$out" "fm_dod_block emitted a block without a firstmate root"
+
+  code=0
+  out=$(. "$ROOT/bin/fm-dod-lib.sh"; fm_dod_block no-mistakes some-task /opt/fm 2>/dev/null) || code=$?
+  expect_code 0 "$code" "fm_dod_block refused a supplied firstmate root"
+  assert_contains "$out" "/opt/fm/bin/fm-diff-assert.sh --diff -" \
+    "fm_dod_block did not interpolate the firstmate root into the diff pass"
+  pass "fm-dod-lib.sh: fm_dod_block requires the firstmate root it renders"
+}
+
 test_ask_user_escalation_format() {
   local home id brief mode other_id other_brief
   home="$TMP_ROOT/ask-user-home"
@@ -983,6 +1021,8 @@ test_ship_mode_is_explicit_not_registry
 test_delivery_flags_are_refused_where_they_do_not_apply
 test_faster_paths_use_configured_authority_without_stacked_review
 test_no_mistakes_dod_wording
+test_dod_renders_deterministic_diff_pass
+test_dod_block_requires_firstmate_root
 test_ask_user_escalation_format
 test_ship_project_memory_wording
 test_herdr_lab_contract_is_explicit_and_complete
