@@ -67,8 +67,8 @@
 # At least one assertion is required, because a review run with nothing to
 # assert is a caller mistake, and every flag requires a non-empty value,
 # because an empty one would silently disable the assertion it asked for.
-# Exit codes: 0 all assertions passed, 1 at least one failed, 2 usage or read
-# error.
+# Exit codes: 0 all assertions passed, 1 at least one failed, 2 usage error,
+# read error, or a diff carrying content with no `diff --git` header.
 set -eu
 
 usage() {
@@ -104,7 +104,8 @@ file and @@ line ranges, as the line-anchored surface a reviewer must cover. A
 changed file with no hunk is listed under its structural markers instead.
 
 The diff is read from <file>, or from standard input when <file> is -.
-Exit codes: 0 pass, 1 failure, 2 usage or read error.
+Exit codes: 0 pass, 1 failure, 2 usage error, read error, or a diff with
+content but no 'diff --git' header.
 USAGE
 }
 
@@ -233,10 +234,11 @@ fi
 #     for a non-rename, yields X - accepted only when the two fields are
 #     byte-identical, which is the only case where the path is unambiguous
 # Any other prefix pair (diff.mnemonicPrefix's `i/X w/X`, a custom src/dst
-# prefix) leaves the changed file unresolvable, as does a hunk that no header
-# introduced: its path never enters prefix matching, and a requested
-# --allow-path or --forbid-path fails rather than silently clearing a file it
-# could not name.
+# prefix) leaves the changed file unresolvable: its path never enters prefix
+# matching, and a requested --allow-path or --forbid-path fails rather than
+# silently clearing a file it could not name. Diff content carrying no
+# `diff --git` header at all is refused outright, because there is no file to
+# resolve and no header to close the preceding hunk body.
 #
 # A rename or copy stanza is the exception, because its `rename to` / `copy to`
 # line carries the destination as one unambiguous field. That names the file
@@ -421,11 +423,6 @@ parse_diff() {
         ;;
       '@@ '*' @@'*)
         in_hunk=1
-        if [ -z "$stanza_file" ]; then
-          stanza_file='(unknown file)'
-          stanza_header='(no diff --git header)'
-          stanza_unresolved=1
-        fi
         ranges=${line#'@@ '}
         ranges=${ranges%%' @@'*}
         COVERAGE="${COVERAGE}  $stanza_file @@ $ranges @@"$'\n'
@@ -460,6 +457,19 @@ else
     printf 'error: cannot read diff file: %s\n' "$DIFF_INPUT" >&2
     exit 2
   }
+fi
+
+# Every file of a git unified diff opens with its own `diff --git` header, and
+# that header is what closes the previous file's hunk body. Diff content with
+# no header at all is therefore not a shape this layer can read: the file has
+# no name for the path assertions, and one file's `---`/`+++` lines would be
+# counted and searched as the previous file's added content. Refuse it rather
+# than return a verdict over a partial parse.
+if [ "$FILE_COUNT" -eq 0 ] \
+  && { [ "$HUNK_COUNT" -gt 0 ] || [ "$STRUCTURAL" -eq 1 ]; }; then
+  printf 'error: diff has content but no %s header; this layer reads git unified diffs, which carry one %s header per file\n' \
+    "'diff --git'" "'diff --git'" >&2
+  exit 2
 fi
 
 failures=''

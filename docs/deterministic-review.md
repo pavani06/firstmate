@@ -79,13 +79,17 @@ Git C-quotes a field whose path needs escaping, independently per field (`diff -
 Only that quote pair comes off: the C escapes inside the field are left as git wrote them, so such a path is matched in its escaped spelling (`docs/caf\303\251.md`, not `docs/café.md`).
 Prefixes for `--allow-path` and `--forbid-path` therefore have to be ASCII to match a C-quoted path - `--forbid-path docs/` works, `--forbid-path 'docs/café'` cannot match. Decoding git's escape alphabet is deliberately not done until a concrete need appears.
 Git leaves a path containing spaces unquoted, which can make an `a/X b/Y` header carry a second ` b/` (`a/plan b/notes.md b/state b/secret.env`); nothing in the header says which one splits it, so that header is unresolvable too rather than resolved to an invented path.
-Any other prefix pair - `diff.mnemonicPrefix`'s `i/X w/X`, a custom src/dst prefix - leaves the changed file unresolvable, as does a hunk that no header introduced.
+Any other prefix pair - `diff.mnemonicPrefix`'s `i/X w/X`, a custom src/dst prefix - leaves the changed file unresolvable.
 A rename or copy stanza is the exception: its `rename to` / `copy to` line carries the destination as one unambiguous field, so the stanza resolves from its own body whatever its header spelling was, and a prefix-less or ambiguous rename is named rather than refused.
 Such a file still counts toward `--max-files`, but its path never enters prefix matching: a requested `--allow-path` or `--forbid-path` fails and names the header instead, because a path guard that cannot name its file must not clear it.
 
+Diff content carrying no `diff --git` header at all is refused outright, with exit 2 and no verdict.
+That header is also what closes the previous file's hunk body, so without it one file's `---`/`+++` lines would be counted and searched as the previous file's added content, and no file would have a name for the path assertions.
+A partial parse of such input can only produce a verdict that is wrong in both directions, so the layer declines to give one.
+
 ## Running it
 
-The diff is read from a file or from standard input, so any PR diff source works.
+The diff is read from a file or from standard input, so any source of a git unified diff works: `git diff`, `gh pr diff` and `bin/fm-review-diff.sh` all emit the `diff --git` headers this layer reads.
 
 ```sh
 git diff main...HEAD | bin/fm-diff-assert.sh --diff - \
@@ -101,7 +105,7 @@ git diff main...HEAD | bin/fm-diff-assert.sh --diff - \
   --claim no-change --note "checked the dispatch table; no code change was warranted"
 ```
 
-Exit codes: 0 all assertions passed, 1 at least one failed, 2 usage or read error.
+Exit codes: 0 all assertions passed, 1 at least one failed, 2 usage error, read error, or a diff carrying content with no `diff --git` header.
 At least one assertion must be requested, because a review run with nothing to assert is a caller mistake; `--note` is not an assertion.
 Every flag requires a non-empty value, because an empty one would otherwise silently disable the assertion it asked for.
 A diff the layer cannot read is a read error, never a PASS: a verdict is only worth its input.

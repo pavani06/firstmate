@@ -965,8 +965,9 @@ assert_contains "$out" "changed file unresolvable from its header" \
 
 # --- a diff with no file header at all --------------------------------------
 
-# A unified diff that git did not produce can carry hunks under no header. Its
-# file cannot be named, so a path assertion must refuse it rather than clear it.
+# A unified diff that git did not produce can carry content under no header.
+# Nothing names its file, and no header closes a hunk body, so the layer
+# refuses it outright instead of returning a verdict over a partial parse.
 HEADERLESS_DIFF="$TMP_ROOT/headerless.diff"
 write_diff "$HEADERLESS_DIFF" \
   '--- a/state/secret.env' \
@@ -975,18 +976,52 @@ write_diff "$HEADERLESS_DIFF" \
   ' a' \
   '+SECRET=1'
 
-out=$(bash "$REVIEW" --diff "$HEADERLESS_DIFF" --forbid-path state/) && code=0 || code=$?
-expect_code 1 "$code" "a headerless diff never clears --forbid-path"
-assert_contains "$out" "changed file unresolvable from its header" \
-  "a headerless hunk is reported unresolvable"
+for guard in '--forbid-path state/' '--allow-path docs/' '--max-files 0' '--claim change' \
+  '--claim no-change' '--require SECRET' '--exclude SECRET'; do
+  # shellcheck disable=SC2086  # each guard is a deliberate two-token flag pair
+  out=$(bash "$REVIEW" --diff "$HEADERLESS_DIFF" $guard 2>&1) && code=0 || code=$?
+  expect_code 2 "$code" "a headerless diff is refused, not verdicted: $guard"
+  assert_contains "$out" "no 'diff --git' header" \
+    "the refusal names the missing header: $guard"
+  assert_not_contains "$out" "PASS" "a headerless diff never reports PASS: $guard"
+  assert_not_contains "$out" "FAIL" "a headerless diff never reports FAIL: $guard"
+done
 
-out=$(bash "$REVIEW" --diff "$HEADERLESS_DIFF" --allow-path docs/) && code=0 || code=$?
-expect_code 1 "$code" "a headerless diff never clears --allow-path"
+# A structural marker with no header is the same malformed shape.
+HEADERLESS_BIN_DIFF="$TMP_ROOT/headerless-binary.diff"
+write_diff "$HEADERLESS_BIN_DIFF" \
+  'Binary files a/state/key.p12 and b/state/key.p12 differ'
+out=$(bash "$REVIEW" --diff "$HEADERLESS_BIN_DIFF" --forbid-path state/ 2>&1) \
+  && code=0 || code=$?
+expect_code 2 "$code" "a headerless binary marker is refused, not cleared"
+assert_not_contains "$out" "PASS" "a headerless binary marker never reports PASS"
 
-out=$(bash "$REVIEW" --diff "$HEADERLESS_DIFF" --claim change) && code=0 || code=$?
-expect_code 0 "$code" "a headerless diff still counts its content as a change"
-assert_contains "$out" "(unknown file) @@ -1 +1,2 @@" \
-  "a headerless hunk is anchored to a named placeholder, not a blank"
+# Several files' headers under no diff --git would be read as the previous
+# file's added content, so that shape is refused before it can fabricate a
+# match on a path line.
+HEADERLESS_MULTI_DIFF="$TMP_ROOT/headerless-multi.diff"
+write_diff "$HEADERLESS_MULTI_DIFF" \
+  '--- a/one.txt' \
+  '+++ b/one.txt' \
+  '@@ -1 +1,2 @@' \
+  ' a' \
+  '+b' \
+  '--- a/secret-keys.txt' \
+  '+++ b/secret-keys.txt' \
+  '@@ -1 +1,2 @@' \
+  ' c' \
+  '+d'
+out=$(bash "$REVIEW" --diff "$HEADERLESS_MULTI_DIFF" --exclude 'secret' 2>&1) \
+  && code=0 || code=$?
+expect_code 2 "$code" "a headerless multi-file diff is refused"
+assert_not_contains "$out" "forbidden text on an added line" \
+  "no assertion is evaluated over a headerless diff"
+
+# An empty diff carries no content, so it is still a legitimate input.
+out=$(bash "$REVIEW" --diff "$EMPTY_DIFF" --claim no-change) && code=0 || code=$?
+expect_code 0 "$code" "an empty diff is not mistaken for a headerless one"
+out=$(bash "$REVIEW" --diff "$EMPTY_DIFF" --claim change) && code=0 || code=$?
+expect_code 1 "$code" "an empty diff still fails a change claim"
 
 # --- forbidden paths --------------------------------------------------------
 
