@@ -330,7 +330,7 @@ out=$(bash "$REVIEW" --diff "$RENAME_DIFF" --claim change) && code=0 || code=$?
 expect_code 0 "$code" "a pure rename is a change"
 out=$(bash "$REVIEW" --diff "$RENAME_DIFF" --claim no-change) && code=0 || code=$?
 expect_code 1 "$code" "a pure rename contradicts a no-change claim"
-assert_contains "$out" "a created, deleted, renamed, copied, mode-changed or binary file" \
+assert_contains "$out" "a created, deleted, renamed, copied, mode-changed, binary or submodule file" \
   "structural-only failure names what changed"
 
 BINARY_DIFF="$TMP_ROOT/binary.diff"
@@ -1058,11 +1058,15 @@ assert_contains "$out" "logo.png - binary, no hunk" \
 
 # Under diff.submodule=log - an ordinary user-level git setting that applies to
 # the documented invocation - a submodule bump is written as a
-# `Submodule <path> <old>..<new>:` record carrying no `diff --git` header at
-# all. It is change evidence with no file this layer can name, so the
-# headerless refusal declines it instead of grading the diff empty.
+# `Submodule <path> <old>..<new>:` record carrying no `diff --git` header of
+# its own. The record still names one changed file, so it has to reach the path
+# assertions, the file limit and the coverage skeleton like any other stanza,
+# including when ordinary files share the diff. Git leaves a submodule path
+# containing spaces unquoted, so the fixture carries one of each.
 SUB_ROOT="$TMP_ROOT/submodule-fixture"
-SUB_DIFF="$TMP_ROOT/submodule-log.diff"
+SUB_LOG_DIFF="$TMP_ROOT/submodule-log.diff"
+SUB_ONLY_DIFF="$TMP_ROOT/submodule-only.diff"
+SUB_NESTED_DIFF="$TMP_ROOT/submodule-nested.diff"
 mkdir -p "$SUB_ROOT"
 (
   cd "$SUB_ROOT" || exit 1
@@ -1079,30 +1083,83 @@ mkdir -p "$SUB_ROOT"
   git config user.email crew@example.test
   git config user.name crew
   git -c protocol.file.allow=always submodule add -q "$SUB_ROOT/sub" sub
+  git -c protocol.file.allow=always submodule add -q "$SUB_ROOT/sub" 'my sub'
   git commit -qm add
   cd "$SUB_ROOT/sub" || exit 1
   printf 'two\n' >> f
   git commit -qam two
-  cd "$SUB_ROOT/super/sub" || exit 1
-  git fetch -q origin
-  git checkout -q FETCH_HEAD
+  for clone in sub 'my sub'; do
+    cd "$SUB_ROOT/super/$clone" || exit 1
+    git fetch -q origin
+    git checkout -q FETCH_HEAD
+  done
   cd "$SUB_ROOT/super" || exit 1
-  git -c diff.submodule=log diff > "$SUB_DIFF"
+  git -c diff.submodule=log diff -- sub 'my sub' > "$SUB_ONLY_DIFF"
+  git -c diff.submodule=diff diff -- sub > "$SUB_NESTED_DIFF"
+  printf 'hello\n' > app.txt
+  git add app.txt
+  git -c diff.submodule=log diff HEAD > "$SUB_LOG_DIFF"
 ) > /dev/null 2>&1
-grep -q '^Submodule sub ' "$SUB_DIFF" \
+grep -q '^Submodule sub ' "$SUB_ONLY_DIFF" \
   || fail "the fixture did not produce a diff.submodule=log record"
-assert_not_contains "$(cat "$SUB_DIFF")" "diff --git" \
+grep -q '^Submodule my sub ' "$SUB_LOG_DIFF" \
+  || fail "the fixture did not produce a record for a path containing a space"
+assert_not_contains "$(cat "$SUB_ONLY_DIFF")" "diff --git" \
   "the submodule log record unexpectedly carries a file header"
 
-for guard in '--claim change' '--claim no-change' '--forbid-path sub' '--max-files 0'; do
-  # shellcheck disable=SC2086  # each guard is a deliberate two-token flag pair
-  out=$(bash "$REVIEW" --diff "$SUB_DIFF" $guard 2>&1) && code=0 || code=$?
-  expect_code 2 "$code" "a headerless submodule record is refused, not verdicted: $guard"
-  assert_contains "$out" "no 'diff --git' header" \
-    "the refusal names the missing header: $guard"
-  assert_not_contains "$out" "PASS" \
-    "a headerless submodule record never reports PASS: $guard"
-done
+# A diff whose only change is a submodule bump is well-formed git output, so it
+# gets a verdict rather than the headerless refusal.
+out=$(bash "$REVIEW" --diff "$SUB_ONLY_DIFF" --claim change) && code=0 || code=$?
+expect_code 0 "$code" "a submodule-only diff satisfies a change claim"
+assert_contains "$out" "sub - submodule, no hunk" \
+  "the submodule bump is listed under its marker"
+
+out=$(bash "$REVIEW" --diff "$SUB_ONLY_DIFF" --claim no-change) && code=0 || code=$?
+expect_code 1 "$code" "a submodule bump contradicts a no-change claim"
+assert_contains "$out" "claim is 'no-change' but the diff has" \
+  "the submodule bump is reported as change evidence"
+assert_contains "$out" "submodule" \
+  "the no-change failure names the submodule among the change evidence"
+
+# The ordinary shape of a task branch: a file and a touched submodule together.
+# FILE_COUNT is already non-zero there, so nothing else can hide the submodule.
+out=$(bash "$REVIEW" --diff "$SUB_LOG_DIFF" --forbid-path sub) && code=0 || code=$?
+expect_code 1 "$code" "a touched submodule beside an ordinary file still trips --forbid-path"
+assert_contains "$out" "forbidden path touched: 'sub'" \
+  "the forbidden path names the submodule"
+
+out=$(bash "$REVIEW" --diff "$SUB_LOG_DIFF" --allow-path app.txt) && code=0 || code=$?
+expect_code 1 "$code" "a touched submodule outside every allowed prefix fails"
+
+out=$(bash "$REVIEW" --diff "$SUB_LOG_DIFF" --max-files 1) && code=0 || code=$?
+expect_code 1 "$code" "a touched submodule counts toward the file limit"
+
+out=$(bash "$REVIEW" --diff "$SUB_LOG_DIFF" --claim change) && code=0 || code=$?
+expect_code 0 "$code" "a file plus a submodule bump satisfies a change claim"
+assert_contains "$out" "my sub - submodule, no hunk" \
+  "a submodule path containing a space is named in the coverage block"
+assert_contains "$out" "app.txt @@ " \
+  "the ordinary file keeps its hunk in the coverage block"
+
+# Under diff.submodule=diff git follows the record with a real, superproject-
+# relative stanza, so the nested file is read like any other.
+out=$(bash "$REVIEW" --diff "$SUB_NESTED_DIFF" --claim change) && code=0 || code=$?
+expect_code 0 "$code" "a diff.submodule=diff bump satisfies a change claim"
+assert_contains "$out" "sub/f @@ " \
+  "the nested submodule stanza keeps its hunk in the coverage block"
+out=$(bash "$REVIEW" --diff "$SUB_NESTED_DIFF" --require two) && code=0 || code=$?
+expect_code 0 "$code" "the nested submodule stanza's added lines are searched"
+
+# A record that names no path is unresolvable rather than resolved to an
+# invented one, and a path guard that cannot name its file must not clear it.
+SUB_UNNAMED_DIFF="$TMP_ROOT/submodule-unnamed.diff"
+write_diff "$SUB_UNNAMED_DIFF" \
+  'Submodule my sub 9569d4f..0cfad91 trailing' \
+  '  > two'
+out=$(bash "$REVIEW" --diff "$SUB_UNNAMED_DIFF" --forbid-path sub) && code=0 || code=$?
+expect_code 1 "$code" "an unnameable submodule record still fails the path guard"
+assert_contains "$out" "changed file unresolvable from its header" \
+  "the unnameable submodule record reports itself unresolvable"
 
 # --- forbidden paths --------------------------------------------------------
 

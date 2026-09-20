@@ -49,10 +49,11 @@
 # diff.renames=copies), a binary file (Binary files ... differ for a plain diff,
 # GIT binary patch under --binary), a mode change (old mode / new mode), or a
 # submodule record (Submodule <path> <old>..<new>, which git writes under
-# diff.submodule=log or =diff). Git writes the submodule record with no
-# `diff --git` header of its own, so a diff carrying only submodule records is
-# change evidence this layer cannot name, and the headerless refusal declines
-# it rather than grading it empty.
+# diff.submodule=log or =diff). Git writes that record with no `diff --git`
+# header of its own, so the record itself opens the stanza and names the
+# submodule as a changed file; under diff.submodule=diff git then follows it
+# with an ordinary superproject-relative stanza, which is read as any other
+# file.
 #
 # --require and --exclude read the added lines only, never headers, hunk
 # headers, unchanged context lines or removed lines. Matching a context line
@@ -333,6 +334,51 @@ add_marker() {  # <label>
   stanza_markers="${stanza_markers}${stanza_markers:+, }$1"
 }
 
+# Resolve a `Submodule ` record's remainder to the submodule path, or to the
+# empty string when the record does not name one unambiguously. Git writes the
+# record as `<path> <old>..<new>` with an optional ` (<state>)` suffix and an
+# optional trailing colon, and it leaves a path containing spaces unquoted, so
+# the `<old>..<new>` field is read off the end and everything before it is the
+# path.
+submodule_path() {  # <text after 'Submodule '>
+  local rest=$1 range
+  rest=${rest%:}
+  case "$rest" in
+    *' ('*')') rest=${rest% (*)} ;;
+  esac
+  range=${rest##* }
+  case "$range" in
+    *'..'*) ;;
+    *) return 0 ;;
+  esac
+  rest=${rest% "$range"}
+  [ -n "$rest" ] || return 0
+  printf '%s' "$rest"
+}
+
+# Open the stanza a file record introduces, closing the one before it. The
+# record names one changed file whether it is a `diff --git` header or a
+# `Submodule ` record, so both reach the path assertions, the file limit and
+# the coverage skeleton through here.
+open_stanza() {  # <resolved path or empty> <record line> <record remainder>
+  flush_stanza
+  in_hunk=0
+  stanza_header=$2
+  if [ -n "$1" ]; then
+    current=$1
+    CHANGED_FILES+=("$current")
+    stanza_unresolved=0
+  else
+    current="(unresolved path: $3)"
+    stanza_unresolved=1
+  fi
+  FILE_COUNT=$((FILE_COUNT + 1))
+  stanza_file=$current
+  stanza_hunks=0
+  stanza_markers=''
+  stanza_from=''
+}
+
 # A rename or copy destination arrives as one unambiguous field, so it names
 # the changed file even when the stanza's header spelling could not.
 resolve_destination() {  # <raw destination field>
@@ -369,23 +415,8 @@ parse_diff() {
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
       'diff --git '*)
-        flush_stanza
-        in_hunk=0
         rest=${line#'diff --git '}
-        current=$(header_path "$rest")
-        stanza_header=$line
-        if [ -z "$current" ]; then
-          current="(unresolved path: $rest)"
-          stanza_unresolved=1
-        else
-          CHANGED_FILES+=("$current")
-          stanza_unresolved=0
-        fi
-        FILE_COUNT=$((FILE_COUNT + 1))
-        stanza_file=$current
-        stanza_hunks=0
-        stanza_markers=''
-        stanza_from=''
+        open_stanza "$(header_path "$rest")" "$line" "$rest"
         ;;
       'new file mode '?*)
         STRUCTURAL=1
@@ -427,7 +458,10 @@ parse_diff() {
         add_marker binary
         ;;
       'Submodule '?*' '?*'..'?*)
+        rest=${line#'Submodule '}
+        open_stanza "$(submodule_path "$rest")" "$line" "$rest"
         STRUCTURAL=1
+        add_marker submodule
         ;;
       '@@ '*' @@'*)
         in_hunk=1
@@ -490,7 +524,7 @@ if [ $((ADDED + REMOVED)) -gt 0 ]; then
 elif [ "$HUNK_COUNT" -gt 0 ]; then
   CHANGE_EVIDENCE="$HUNK_COUNT hunk(s) of changed lines"
 elif [ "$STRUCTURAL" -eq 1 ]; then
-  CHANGE_EVIDENCE='a created, deleted, renamed, copied, mode-changed or binary file'
+  CHANGE_EVIDENCE='a created, deleted, renamed, copied, mode-changed, binary or submodule file'
 fi
 
 if [ "$CLAIM" = 'change' ] && [ -z "$CHANGE_EVIDENCE" ]; then
