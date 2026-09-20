@@ -1,0 +1,141 @@
+fm-diff-assert.sh driven against real git repositories (2026-09-20)
+branch fm/fm-grad-review-layer @ 679b19e; every diff below is real git output piped into the CLI
+
+=== 1. planted failure on a task branch (secret written to a guarded path) ===
+
+$ git diff main...HEAD | fm-diff-assert.sh --diff - --claim change --note 'small refactor, nothing sensitive' --forbid-path state/ --exclude sk-live --max-files 1
+COVERAGE (hunks=2)
+  src/mod.py @@ -1,2 +1,4 @@
+  state/secret.env @@ -1 +1,2 @@
+NOTE: small refactor, nothing sensitive
+FAIL
+  - forbidden text on an added line: 'sk-live'
+  - forbidden path touched: 'state/secret.env' (forbidden prefix: state/)
+  - too many changed files: 2 > 1
+[exit=1]
+
+=== 2. clean control on the same repo (no false positive) ===
+
+$ git diff main...HEAD | fm-diff-assert.sh --diff - --claim change --note 'add helper c()' --allow-path src/ --forbid-path state/ --exclude sk-live --require 'def c' --max-files 1
+COVERAGE (hunks=1)
+  src/mod.py @@ -1,2 +1,4 @@
+NOTE: add helper c()
+PASS (files=1, +2/-0)
+[exit=0]
+
+=== 3. claim consistency in both directions ===
+
+$ on a real change: --claim no-change
+COVERAGE (hunks=1)
+  src/mod.py @@ -1,2 +1,4 @@
+NOTE: nothing changed
+FAIL
+  - claim is 'no-change' but the diff has +2/-0 lines
+[exit=1]
+
+$ on an empty diff: --claim change
+COVERAGE (hunks=0)
+NOTE: big refactor
+FAIL
+  - claim is 'change' but the diff changes nothing
+[exit=1]
+
+=== 4. files with no hunk still enter the coverage skeleton and the path guard ===
+
+$ git diff main...HEAD (rename + mode change)
+COVERAGE (hunks=1)
+  assets-logo.bin @@ -1,3 +1,3 @@
+  README.md -> docs.md - renamed, no hunk
+  tool.sh - mode change, no hunk
+NOTE: moved the readme, chmod +x, refreshed the logo
+PASS (files=3, +1/-1)
+[exit=0]
+
+$ the rename SOURCE is a changed file too
+COVERAGE (hunks=1)
+  assets-logo.bin @@ -1,3 +1,3 @@
+  README.md -> docs.md - renamed, no hunk
+  tool.sh - mode change, no hunk
+FAIL
+  - changed file outside allowed paths: 'README.md' (allowed prefixes: docs.md tool.sh assets-logo.bin)
+[exit=1]
+
+=== 5. a modified binary is change evidence in both spellings git writes ===
+
+$ plain git diff -> 'Binary files ... differ'
+COVERAGE (hunks=0)
+  real.png - binary, no hunk
+NOTE: nothing changed
+FAIL
+  - claim is 'no-change' but the diff has a created, deleted, renamed, copied, mode-changed, binary or submodule file
+[exit=1]
+
+$ git diff --binary -> 'GIT binary patch'
+COVERAGE (hunks=0)
+  real.png - binary, no hunk
+NOTE: nothing changed
+FAIL
+  - claim is 'no-change' but the diff has a created, deleted, renamed, copied, mode-changed, binary or submodule file
+[exit=1]
+
+=== 6. a touched submodule is named, counted and guarded ===
+
+$ mixed diff (app.txt + submodule record) under diff.submodule=log
+COVERAGE (hunks=1)
+  app.txt @@ -1 +1,2 @@
+  sub - submodule, no hunk
+FAIL
+  - forbidden path touched: 'sub' (forbidden prefix: sub)
+  - too many changed files: 2 > 1
+[exit=1]
+
+$ submodule-only bump claimed as no-change
+COVERAGE (hunks=0)
+  sub - submodule, no hunk
+NOTE: no change needed
+FAIL
+  - claim is 'no-change' but the diff has a created, deleted, renamed, copied, mode-changed, binary or submodule file
+[exit=1]
+
+$ same bump under diff.submodule=diff
+COVERAGE (hunks=1)
+  sub - submodule, no hunk
+  sub/f @@ -1 +1,2 @@
+NOTE: bump sub
+FAIL
+  - forbidden path touched: 'sub' (forbidden prefix: sub)
+  - forbidden path touched: 'sub/f' (forbidden prefix: sub)
+[exit=1]
+
+$ same bump under a default git diff
+COVERAGE (hunks=1)
+  sub @@ -1 +1 @@
+NOTE: nothing changed
+FAIL
+  - claim is 'no-change' but the diff has +1/-1 lines
+[exit=1]
+
+=== 7. adversarial: shapes this layer must refuse or fail closed ===
+
+$ headerless 'diff -u' output
+error: diff has content but no 'diff --git' header; this layer reads git unified diffs, which carry one 'diff --git' header per file
+[exit=2]
+
+$ headerless structural marker only
+error: diff has content but no 'diff --git' header; this layer reads git unified diffs, which carry one 'diff --git' header per file
+[exit=2]
+
+$ header spelling that names no file (i/ w/ prefixes)
+COVERAGE (hunks=1)
+  (unresolved path: i/state/secret.env w/state/secret.env) @@ -1,2 +1,3 @@
+FAIL
+  - changed file unresolvable from its header, so its path cannot be asserted: 'diff --git i/state/secret.env w/state/secret.env'
+[exit=1]
+
+$ an added line that repeats its own marker (++API_KEY = "sk-live-hidden")
+COVERAGE (hunks=2)
+  code.py @@ -1 +1,2 @@
+  state/secret.env @@ -1 +1,2 @@
+FAIL
+  - forbidden text on an added line: 'API_KEY'
+[exit=1]
