@@ -529,12 +529,12 @@ else
 fi
 
 # Every file of a git unified diff opens with its own record - a `diff --git`
-# header, or the `Submodule ` record git writes for a submodule bump - and that
-# record is what closes the previous file's hunk body. Diff content that no
-# record names is therefore not a shape this layer can read: the file has no
-# name for the path assertions, and one file's `---`/`+++` lines would be
-# counted and searched as the previous file's added content. Refuse it rather
-# than return a verdict over a partial parse.
+# header, or a `Submodule ` record git writes for a submodule bump or a dirty
+# submodule worktree - and that record is what closes the previous file's hunk
+# body. Diff content that no record names is therefore not a shape this layer
+# can read: the file has no name for the path assertions, and one file's
+# `---`/`+++` lines would be counted and searched as the previous file's added
+# content. Refuse it rather than return a verdict over a partial parse.
 if [ "$FILE_COUNT" -eq 0 ] \
   && { [ "$HUNK_COUNT" -gt 0 ] || [ "$STRUCTURAL" -eq 1 ]; }; then
   printf 'error: diff has content but no %s header; this layer reads git unified diffs, which carry one %s header per file\n' \
