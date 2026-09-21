@@ -1161,6 +1161,90 @@ expect_code 1 "$code" "an unnameable submodule record still fails the path guard
 assert_contains "$out" "changed file unresolvable from its header" \
   "the unnameable submodule record reports itself unresolvable"
 
+# A submodule whose worktree is dirty is written with no `<old>..<new>` range
+# at all - `Submodule <path> contains modified content` and its untracked
+# sibling - and that record names a changed file just as the bump does. A
+# submodule that is bumped and dirty at once draws several records for one
+# path, which still name one changed file between them.
+SUB_DIRTY_ROOT="$TMP_ROOT/submodule-dirty-fixture"
+SUB_DIRTY_ONLY_DIFF="$TMP_ROOT/submodule-dirty-only.diff"
+SUB_DIRTY_MIX_DIFF="$TMP_ROOT/submodule-dirty-mixed.diff"
+SUB_UNTRACKED_DIFF="$TMP_ROOT/submodule-untracked.diff"
+SUB_DIRTY_BUMP_DIFF="$TMP_ROOT/submodule-dirty-bump.diff"
+mkdir -p "$SUB_DIRTY_ROOT"
+(
+  cd "$SUB_DIRTY_ROOT" || exit 1
+  git init -q super
+  cd super || exit 1
+  git config user.email crew@example.test
+  git config user.name crew
+  git -c protocol.file.allow=always submodule add -q "$SUB_ROOT/sub" sub
+  git commit -qm add
+  printf 'dirty\n' >> sub/f
+  git -c diff.submodule=log diff --ignore-submodules=none -- sub > "$SUB_DIRTY_ONLY_DIFF"
+  printf 'hello\n' > app.txt
+  git add app.txt
+  git -c diff.submodule=log diff --ignore-submodules=none HEAD > "$SUB_DIRTY_MIX_DIFF"
+  git -C sub checkout -q -- f
+  git rm -q --cached app.txt
+  rm -f app.txt
+  : > sub/untracked
+  git -c diff.submodule=log diff --ignore-submodules=none -- sub > "$SUB_UNTRACKED_DIFF"
+  rm -f sub/untracked
+  git -C sub checkout -q 'HEAD~1'
+  printf 'dirty\n' >> sub/f
+  git -c diff.submodule=log diff --ignore-submodules=none -- sub > "$SUB_DIRTY_BUMP_DIFF"
+) > /dev/null 2>&1
+grep -qx 'Submodule sub contains modified content' "$SUB_DIRTY_ONLY_DIFF" \
+  || fail "the fixture did not produce a 'contains modified content' record"
+grep -qx 'Submodule sub contains untracked content' "$SUB_UNTRACKED_DIFF" \
+  || fail "the fixture did not produce a 'contains untracked content' record"
+grep -q '^Submodule sub .*\.\.' "$SUB_DIRTY_BUMP_DIFF" \
+  || fail "the fixture did not produce a bumped-and-dirty submodule"
+assert_not_contains "$(cat "$SUB_DIRTY_ONLY_DIFF")" "diff --git" \
+  "the dirty submodule record unexpectedly carries a file header"
+
+# The whole diff is the one record, so nothing else can carry the verdict.
+out=$(bash "$REVIEW" --diff "$SUB_DIRTY_ONLY_DIFF" --claim no-change \
+  --note "nothing changed") && code=0 || code=$?
+expect_code 1 "$code" "modified submodule content contradicts a no-change claim"
+assert_contains "$out" "claim is 'no-change' but the diff has" \
+  "the dirty submodule is reported as change evidence"
+
+out=$(bash "$REVIEW" --diff "$SUB_DIRTY_ONLY_DIFF" --claim change) && code=0 || code=$?
+expect_code 0 "$code" "modified submodule content satisfies a change claim"
+assert_contains "$out" "sub - submodule, no hunk" \
+  "the dirty submodule is listed under its marker"
+
+out=$(bash "$REVIEW" --diff "$SUB_UNTRACKED_DIFF" --claim no-change) && code=0 || code=$?
+expect_code 1 "$code" "untracked submodule content contradicts a no-change claim"
+
+out=$(bash "$REVIEW" --diff "$SUB_UNTRACKED_DIFF" --forbid-path sub) && code=0 || code=$?
+expect_code 1 "$code" "untracked submodule content trips --forbid-path"
+
+# The ordinary task-branch shape: FILE_COUNT is already non-zero, so only the
+# record itself can put the submodule in front of the guards.
+out=$(bash "$REVIEW" --diff "$SUB_DIRTY_MIX_DIFF" --forbid-path sub) && code=0 || code=$?
+expect_code 1 "$code" "a dirty submodule beside an ordinary file still trips --forbid-path"
+assert_contains "$out" "forbidden path touched: 'sub'" \
+  "the forbidden path names the dirty submodule"
+
+out=$(bash "$REVIEW" --diff "$SUB_DIRTY_MIX_DIFF" --max-files 1) && code=0 || code=$?
+expect_code 1 "$code" "a dirty submodule counts toward the file limit"
+
+out=$(bash "$REVIEW" --diff "$SUB_DIRTY_MIX_DIFF" --claim change) && code=0 || code=$?
+expect_code 0 "$code" "a file plus a dirty submodule satisfies a change claim"
+assert_contains "$out" "sub - submodule, no hunk" \
+  "the dirty submodule is named in the coverage block beside the file"
+
+# Several records, one changed file: the submodule is counted and listed once.
+out=$(bash "$REVIEW" --diff "$SUB_DIRTY_BUMP_DIFF" --max-files 1) && code=0 || code=$?
+expect_code 0 "$code" "a bumped-and-dirty submodule counts as one changed file"
+assert_contains "$out" "(files=1," \
+  "the repeated submodule records report one changed file"
+[ "$(printf '%s\n' "$out" | grep -c 'sub - submodule, no hunk')" = 1 ] \
+  || fail "the repeated submodule records are listed more than once in the coverage block"
+
 # --- forbidden paths --------------------------------------------------------
 
 STATE_DIFF="$TMP_ROOT/state.diff"

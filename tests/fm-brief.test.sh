@@ -411,8 +411,10 @@ test_dod_renders_deterministic_diff_pass() {
       assert_no_grep 'origin/<default-branch>' "$brief" \
         "$mode: DOD diff pass names a remote base in a project with no remote"
     else
-      assert_grep '`git fetch origin <default-branch> && git diff origin/<default-branch>...HEAD |' \
-        "$brief" "$mode: DOD diff pass must fetch and compare against origin/<default-branch>"
+      assert_grep '`git fetch origin +refs/heads/<default-branch>:refs/remotes/origin/<default-branch> && git diff origin/<default-branch>...HEAD |' \
+        "$brief" "$mode: DOD diff pass must fetch the remote-tracking ref and compare against origin/<default-branch>"
+      assert_no_grep 'git fetch origin <default-branch> &&' "$brief" \
+        "$mode: DOD diff pass still uses the bare fetch that can leave origin/<default-branch> stale"
       assert_no_grep '`git diff <default-branch>...HEAD' "$brief" \
         "$mode: DOD diff pass still compares against the stale local default branch"
     fi

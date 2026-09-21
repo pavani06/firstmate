@@ -58,10 +58,11 @@ A diff changes something when any of three kinds of evidence is present:
 
 - `+`/`-` content lines.
 - A hunk that carries no content line. Git writes an `@@` header only for a region it found different, so a truncated or hand-edited diff whose content lines are gone still counts as a change rather than grading itself empty. Every `@@` header git writes for a whole diff has content under it, so this is deliberate fail-closed insurance against degenerate input, not a rule ordinary diffs meet.
-- A marker for a change that has neither: a created or deleted file (`new file mode` / `deleted file mode`), a rename (`rename from` / `rename to`), a copy (`copy from` / `copy to`, which git emits under `--find-copies` or `diff.renames=copies`), a binary file (`Binary files ... differ` in a plain diff, `GIT binary patch` under `--binary`), a mode change (`old mode` / `new mode`), or a submodule record (`Submodule <path> <old>..<new>`, which git writes under `diff.submodule=log` or `=diff`).
+- A marker for a change that has neither: a created or deleted file (`new file mode` / `deleted file mode`), a rename (`rename from` / `rename to`), a copy (`copy from` / `copy to`, which git emits under `--find-copies` or `diff.renames=copies`), a binary file (`Binary files ... differ` in a plain diff, `GIT binary patch` under `--binary`), a mode change (`old mode` / `new mode`), or a submodule record (`Submodule <path> <old>..<new>` for a bump, `Submodule <path> contains modified content` and its `contains untracked content` sibling for a dirty submodule worktree, which git writes under `diff.submodule=log` or `=diff`).
 
-Git writes that submodule record with no `diff --git` header of its own, so the record itself opens the stanza: the submodule counts toward `--max-files`, enters the path assertions, and is listed as `sub - submodule, no hunk` in the coverage block.
-Its path is read off the record by taking the trailing `<old>..<new>` field and an optional ` (<state>)` suffix off the end, because git leaves a submodule path containing spaces unquoted; a record that does not name a path that way is unresolvable like any other header this layer cannot name.
+Git writes those submodule records with no `diff --git` header of their own, so the record itself opens the stanza: the submodule counts toward `--max-files`, enters the path assertions, and is listed as `sub - submodule, no hunk` in the coverage block.
+Its path is read off the record by taking the trailing field off the end - `<old>..<new>` with an optional ` (<state>)` suffix for a bump, `contains modified content` or `contains untracked content` for a dirty worktree - because git leaves a submodule path containing spaces unquoted; a record that does not name a path that way is unresolvable like any other header this layer cannot name.
+A submodule that is both bumped and dirty gets all three records in one diff, and they name one changed file between them, so a record repeating the open submodule stanza's path folds into it rather than counting the submodule again.
 Under `diff.submodule=diff` git follows the record with an ordinary superproject-relative stanza (`diff --git a/sub/f b/sub/f`), which is read as any other file.
 
 So a pure rename, a chmod, a replaced image, an added blank line and an empty `.gitkeep` are all real changes: `--claim change` passes over them and `--claim no-change` fails.
@@ -88,7 +89,7 @@ A rename or copy stanza is the exception: its `rename to` / `copy to` line carri
 Such a file still counts toward `--max-files`, but its path never enters prefix matching: a requested `--allow-path` or `--forbid-path` fails and names the header instead, because a path guard that cannot name its file must not clear it.
 
 Diff content that no file record names at all is refused outright, with exit 2 and no verdict.
-A `diff --git` header is one such record and the `Submodule <path> <old>..<new>` record above is the other, so a submodule-only diff is read normally and only content carrying neither is refused.
+A `diff --git` header is one such record and the `Submodule ` records above are the others, so a submodule-only diff is read normally and only content carrying neither is refused.
 A file record is also what closes the previous file's hunk body, so without one, one file's `---`/`+++` lines would be counted and searched as the previous file's added content, and no file would have a name for the path assertions.
 A partial parse of such input can only produce a verdict that is wrong in both directions, so the layer declines to give one.
 

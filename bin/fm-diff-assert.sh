@@ -48,12 +48,13 @@
 # a copy (copy from / copy to, which git emits under --find-copies or
 # diff.renames=copies), a binary file (Binary files ... differ for a plain diff,
 # GIT binary patch under --binary), a mode change (old mode / new mode), or a
-# submodule record (Submodule <path> <old>..<new>, which git writes under
-# diff.submodule=log or =diff). Git writes that record with no `diff --git`
-# header of its own, so the record itself opens the stanza and names the
-# submodule as a changed file; under diff.submodule=diff git then follows it
-# with an ordinary superproject-relative stanza, which is read as any other
-# file.
+# submodule record (Submodule <path> <old>..<new> for a bump, and the
+# Submodule <path> contains modified/untracked content spellings for a dirty
+# submodule worktree, which git writes under diff.submodule=log or =diff). Git
+# writes those records with no `diff --git` header of their own, so the record
+# itself opens the stanza and names the submodule as a changed file; under
+# diff.submodule=diff git then follows it with an ordinary superproject-
+# relative stanza, which is read as any other file.
 #
 # --require and --exclude read the added lines only, never headers, hunk
 # headers, unchanged context lines or removed lines. Matching a context line
@@ -337,23 +338,30 @@ add_marker() {  # <label>
 }
 
 # Resolve a `Submodule ` record's remainder to the submodule path, or to the
-# empty string when the record does not name one unambiguously. Git writes the
-# record as `<path> <old>..<new>` with an optional ` (<state>)` suffix and an
-# optional trailing colon, and it leaves a path containing spaces unquoted, so
-# the `<old>..<new>` field is read off the end and everything before it is the
-# path.
+# empty string when the record does not name one unambiguously. Git writes a
+# bump as `<path> <old>..<new>` with an optional ` (<state>)` suffix and an
+# optional trailing colon, and a dirty submodule worktree as
+# `<path> contains modified content` or `<path> contains untracked content`.
+# It leaves a path containing spaces unquoted, so in both spellings the
+# trailing field is read off the end and everything before it is the path.
 submodule_path() {  # <text after 'Submodule '>
   local rest=$1 range
-  rest=${rest%:}
   case "$rest" in
-    *' ('*')') rest=${rest% (*)} ;;
+    *' contains modified content') rest=${rest%' contains modified content'} ;;
+    *' contains untracked content') rest=${rest%' contains untracked content'} ;;
+    *)
+      rest=${rest%:}
+      case "$rest" in
+        *' ('*')') rest=${rest% (*)} ;;
+      esac
+      range=${rest##* }
+      case "$range" in
+        *'..'*) ;;
+        *) return 0 ;;
+      esac
+      rest=${rest% "$range"}
+      ;;
   esac
-  range=${rest##* }
-  case "$range" in
-    *'..'*) ;;
-    *) return 0 ;;
-  esac
-  rest=${rest% "$range"}
   [ -n "$rest" ] || return 0
   printf '%s' "$rest"
 }
@@ -379,6 +387,23 @@ open_stanza() {  # <resolved path or empty> <record line> <record remainder>
   stanza_hunks=0
   stanza_markers=''
   stanza_from=''
+}
+
+# Git can write several records for one submodule in the same diff - a bump
+# whose worktree is also dirty prints `contains untracked content`,
+# `contains modified content` and the `<old>..<new>` record one after another -
+# and between them they name a single changed file. A record that repeats the
+# open submodule stanza's path therefore folds into it instead of counting the
+# submodule again; any other record opens its own stanza.
+open_submodule_stanza() {  # <resolved path or empty> <record line> <record remainder>
+  case ", $stanza_markers, " in
+    *', submodule, '*)
+      if [ -n "$1" ] && [ "$1" = "$current" ]; then
+        return 0
+      fi
+      ;;
+  esac
+  open_stanza "$1" "$2" "$3"
 }
 
 # A rename or copy destination arrives as one unambiguous field, so it names
@@ -459,9 +484,9 @@ parse_diff() {
         STRUCTURAL=1
         add_marker binary
         ;;
-      'Submodule '?*' '?*'..'?*)
+      'Submodule '?*)
         rest=${line#'Submodule '}
-        open_stanza "$(submodule_path "$rest")" "$line" "$rest"
+        open_submodule_stanza "$(submodule_path "$rest")" "$line" "$rest"
         STRUCTURAL=1
         add_marker submodule
         ;;

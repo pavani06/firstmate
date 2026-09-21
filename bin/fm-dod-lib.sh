@@ -268,11 +268,12 @@ fm_dod_block() {  # <mode> <task-id> <firstmate-root>
   prose_line=$(fm_prose_skills_line "$root/.agents/skills") || return 1
   # The pass is only as good as its base, and the authoritative base is the one
   # `bin/fm-review-diff.sh` resolves: pooled project clones never freshen their
-  # local default branch, so a remote-backed project compares against a freshly
-  # fetched `origin/<default>` while a local-only project has no remote and
-  # compares against the local `<default>` it rebases onto. A stale local
-  # default branch moves the merge base back, which would make the pass report
-  # files, hunks and line counts from commits the worker never wrote.
+  # local default branch, so a remote-backed project compares against
+  # `origin/<default>` fetched through the same explicit refspec that helper
+  # uses, while a local-only project has no remote and compares against the
+  # local `<default>` it rebases onto. A stale base moves the merge base back,
+  # which would make the pass report files, hunks and line counts from commits
+  # the worker never wrote.
   local diff_base diff_base_rule diff_pass
   # shellcheck disable=SC2016  # single quotes are deliberate: the backtick-wrapped command is literal brief text that must reach the reading agent verbatim.
   case "$mode" in
@@ -281,8 +282,8 @@ fm_dod_block() {  # <mode> <task-id> <firstmate-root>
       diff_base_rule='This project is local-only, so the authoritative base is the local `<default-branch>` you rebase onto - the same base `bin/fm-review-diff.sh` resolves for a project with no remote.'
       ;;
     *)
-      diff_base='git fetch origin <default-branch> && git diff origin/<default-branch>...HEAD'
-      diff_base_rule='Fetch first and diff against `origin/<default-branch>`, never the local one: pooled project clones do not keep their local default branch current, and a stale base moves the merge base back so the pass reports files, hunks and line counts from commits you never wrote. This is the same base rule `bin/fm-review-diff.sh` follows for a remote-backed project.'
+      diff_base='git fetch origin +refs/heads/<default-branch>:refs/remotes/origin/<default-branch> && git diff origin/<default-branch>...HEAD'
+      diff_base_rule='Fetch the remote-tracking ref itself with that explicit refspec and diff against `origin/<default-branch>`, never the local one: pooled project clones do not keep their local default branch current, a bare single-branch fetch can refresh only `FETCH_HEAD` and leave `origin/<default-branch>` stale, and a stale base moves the merge base back so the pass reports files, hunks and line counts from commits you never wrote. This is the same base rule `bin/fm-review-diff.sh` follows for a remote-backed project.'
       ;;
   esac
   # shellcheck disable=SC2016  # single quotes are deliberate: the backtick-wrapped command is literal brief text that must reach the reading agent verbatim; only the interpolations break out.
