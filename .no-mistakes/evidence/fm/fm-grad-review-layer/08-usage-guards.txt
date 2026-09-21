@@ -1,0 +1,17 @@
+--- a run with nothing to assert is refused as a caller mistake ---
+error: no assertions requested: pass --claim, --require, --exclude, --allow-path, --forbid-path, or --max-files
+usage:
+  fm-diff-assert.sh --diff <file|-> [--claim change|no-change] [--note <text>]
+[exit 2]
+
+--- an empty flag value cannot silently disable the assertion it asked for ---
+error: --forbid-path requires a non-empty value
+usage:
+[exit ...]
+
+--- an unknown claim verdict is refused ---
+error: --claim must be exactly 'change' or 'no-change', not: maybe
+usage:
+
+--- a missing diff file is a read error, not a verdict ---
+error: cannot read diff file: /tmp/does-not-exist.diff

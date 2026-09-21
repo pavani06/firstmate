@@ -1,0 +1,64 @@
+=== live run: deterministic diff pass over a real branch (sandbox /tmp/fm-diffassert-live.ADjtY1/app, git 2.53.0) ===
+
+--- S1: the worker's honest report: real work, --claim change ---
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/feature.diff --claim change --note add farewell helper and greet a name
+COVERAGE (hunks=2)
+  docs/readme.md @@ -1,3 +1,5 @@
+  src/app.py @@ -1,2 +1,6 @@
+NOTE: add farewell helper and greet a name
+PASS (files=2, +8/-2)
+[exit 0]
+
+--- S2: no-op claimed as work (claim-without-diff) ---
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/empty.diff --claim change --note refactored the greeter
+COVERAGE (hunks=0)
+NOTE: refactored the greeter
+FAIL
+  - claim is 'change' but the diff changes nothing
+[exit 1]
+
+--- S3: real work reported as no change (diff-without-claim) ---
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/feature.diff --claim no-change --note nothing to do, already correct
+COVERAGE (hunks=2)
+  docs/readme.md @@ -1,3 +1,5 @@
+  src/app.py @@ -1,2 +1,6 @@
+NOTE: nothing to do, already correct
+FAIL
+  - claim is 'no-change' but the diff has +8/-2 lines
+[exit 1]
+
+--- S4: forbidden path guard over the real diff ---
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/feature.diff --forbid-path state/
+COVERAGE (hunks=2)
+  docs/readme.md @@ -1,3 +1,5 @@
+  src/app.py @@ -1,2 +1,6 @@
+PASS (files=2, +8/-2)
+[exit 0]
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/state.diff --forbid-path state/
+COVERAGE (hunks=1)
+  state/creds.txt @@ -1 +1 @@
+FAIL
+  - forbidden path touched: 'state/creds.txt' (forbidden prefix: state/)
+[exit 1]
+
+--- S5: file limit over the real diff ---
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/feature.diff --max-files 2
+COVERAGE (hunks=2)
+  docs/readme.md @@ -1,3 +1,5 @@
+  src/app.py @@ -1,2 +1,6 @@
+PASS (files=2, +8/-2)
+[exit 0]
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/feature.diff --max-files 1
+COVERAGE (hunks=2)
+  docs/readme.md @@ -1,3 +1,5 @@
+  src/app.py @@ -1,2 +1,6 @@
+FAIL
+  - too many changed files: 2 > 1
+[exit 1]

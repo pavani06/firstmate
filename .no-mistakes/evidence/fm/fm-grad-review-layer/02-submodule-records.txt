@@ -1,0 +1,99 @@
+=== live run: dirty and bumped submodule records (git 2.53.0, superproject /tmp/fm-diffassert-live.ADjtY1/super) ===
+
+--- S6a: a crewmate leaves modified content inside the submodule and reports 'nothing changed' ---
+$ git -c diff.submodule=log diff --ignore-submodules=none -- sub
+Submodule sub contains modified content
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/sub-dirty.diff --claim no-change --note nothing changed
+COVERAGE (hunks=0)
+  sub - submodule, no hunk
+NOTE: nothing changed
+FAIL
+  - claim is 'no-change' but the diff has a created, deleted, renamed, copied, mode-changed, binary or submodule file
+[exit 1]
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/sub-dirty.diff --claim change --note picked up vendorlib fix
+COVERAGE (hunks=0)
+  sub - submodule, no hunk
+NOTE: picked up vendorlib fix
+PASS (files=1, +0/-0)
+[exit 0]
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/sub-dirty.diff --forbid-path sub
+COVERAGE (hunks=0)
+  sub - submodule, no hunk
+FAIL
+  - forbidden path touched: 'sub' (forbidden prefix: sub)
+[exit 1]
+
+--- S6b: the same dirty submodule beside an ordinary file (the task-branch shape) ---
+$ git -c diff.submodule=log diff --ignore-submodules=none HEAD
+diff --git a/app.txt b/app.txt
+index b80f0bd..af243c3 100644
+--- a/app.txt
++++ b/app.txt
+@@ -1 +1 @@
+-app
++app changed
+Submodule sub contains modified content
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/sub-mixed.diff --forbid-path sub
+COVERAGE (hunks=1)
+  app.txt @@ -1 +1 @@
+  sub - submodule, no hunk
+FAIL
+  - forbidden path touched: 'sub' (forbidden prefix: sub)
+[exit 1]
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/sub-mixed.diff --max-files 1
+COVERAGE (hunks=1)
+  app.txt @@ -1 +1 @@
+  sub - submodule, no hunk
+FAIL
+  - too many changed files: 2 > 1
+[exit 1]
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/sub-mixed.diff --claim change --note app tweak; vendorlib dirty
+COVERAGE (hunks=1)
+  app.txt @@ -1 +1 @@
+  sub - submodule, no hunk
+NOTE: app tweak; vendorlib dirty
+PASS (files=2, +1/-1)
+[exit 0]
+
+--- S6c: untracked content inside the submodule ---
+$ git -c diff.submodule=log diff --ignore-submodules=none -- sub
+Submodule sub contains untracked content
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/sub-untracked.diff --claim no-change --note nothing changed
+COVERAGE (hunks=0)
+  sub - submodule, no hunk
+NOTE: nothing changed
+FAIL
+  - claim is 'no-change' but the diff has a created, deleted, renamed, copied, mode-changed, binary or submodule file
+[exit 1]
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/sub-untracked.diff --forbid-path sub
+COVERAGE (hunks=0)
+  sub - submodule, no hunk
+FAIL
+  - forbidden path touched: 'sub' (forbidden prefix: sub)
+[exit 1]
+
+--- S7: a submodule that is bumped AND dirty draws three records but is one changed file ---
+$ git -c diff.submodule=log diff --ignore-submodules=none -- sub
+Submodule sub contains untracked content
+Submodule sub contains modified content
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/sub-bump-dirty.diff --max-files 1
+COVERAGE (hunks=0)
+  sub - submodule, no hunk
+PASS (files=1, +0/-0)
+[exit 0]
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/sub-bump-dirty.diff --claim change --note bump vendorlib
+COVERAGE (hunks=0)
+  sub - submodule, no hunk
+NOTE: bump vendorlib
+PASS (files=1, +0/-0)
+[exit 0]

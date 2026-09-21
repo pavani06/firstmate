@@ -1,0 +1,49 @@
+=== live run: submodule bumped, and bumped AND dirty at once (git 2.53.0) ===
+
+--- a plain bump: the submodule worktree moves back one commit ---
+$ git -c diff.submodule=log diff --ignore-submodules=none -- sub
+Submodule sub f577f07..500c319 (rewind):
+  < two
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/sub-bump.diff --claim no-change --note vendored nothing
+COVERAGE (hunks=0)
+  sub - submodule, no hunk
+NOTE: vendored nothing
+FAIL
+  - claim is 'no-change' but the diff has a created, deleted, renamed, copied, mode-changed, binary or submodule file
+[exit 1]
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/sub-bump.diff --max-files 1
+COVERAGE (hunks=0)
+  sub - submodule, no hunk
+PASS (files=1, +0/-0)
+[exit 0]
+
+--- the same bump with a dirty submodule worktree: three records, one changed file ---
+$ git -c diff.submodule=log diff --ignore-submodules=none -- sub
+Submodule sub contains untracked content
+Submodule sub contains modified content
+Submodule sub f577f07..500c319 (rewind):
+  < two
+(Submodule records in this diff: 3)
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/sub-bump-dirty.diff --max-files 1
+COVERAGE (hunks=0)
+  sub - submodule, no hunk
+PASS (files=1, +0/-0)
+[exit 0]
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/sub-bump-dirty.diff --claim no-change --note no change needed
+COVERAGE (hunks=0)
+  sub - submodule, no hunk
+NOTE: no change needed
+FAIL
+  - claim is 'no-change' but the diff has a created, deleted, renamed, copied, mode-changed, binary or submodule file
+[exit 1]
+
+$ bash /home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff /tmp/fm-diffassert-live.ADjtY1/sub-bump-dirty.diff --forbid-path sub
+COVERAGE (hunks=0)
+  sub - submodule, no hunk
+FAIL
+  - forbidden path touched: 'sub' (forbidden prefix: sub)
+[exit 1]

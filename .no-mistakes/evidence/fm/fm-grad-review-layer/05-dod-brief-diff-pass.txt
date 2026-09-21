@@ -1,0 +1,36 @@
+=== live run: the diff pass as a crewmate actually receives it in a scaffolded brief ===
+
+--- brief for mode=no-mistakes (/tmp/fm-diffassert-live.ADjtY1/fm-home/data/live-no-mistakes/brief.md), deterministic diff pass lines ---
+86:Before reporting done, run the deterministic diff pass over your committed branch and report what it 
+printed: `git fetch origin +refs/heads/<default-branch>:refs/remotes/origin/<default-branch> && git diff 
+origin/<default-branch>...HEAD | 
+/home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff 
+- --claim change --note "{your one-line summary}"` (use `--claim no-change` when you deliberately changed 
+nothing). Fetch the remote-tracking ref itself with that explicit refspec and diff against 
+`origin/<default-branch>`, never the local one: pooled project clones do not keep their local default branch 
+current, a bare single-branch fetch can refresh only `FETCH_HEAD` and leave `origin/<default-branch>` stale, 
+and a stale base moves the merge base back so the pass reports files, hunks and line counts from commits you 
+never wrote. This is the same base rule `bin/fm-review-diff.sh` follows for a remote-backed project. It 
+asserts diff facts only - it is not a gate, it blocks nothing, and it replaces no existing authority.
+
+--- brief for mode=direct-PR (/tmp/fm-diffassert-live.ADjtY1/fm-home/data/live-direct-PR/brief.md), deterministic diff pass lines ---
+82:Before reporting done, run the deterministic diff pass over your committed branch and report what it 
+printed: `git fetch origin +refs/heads/<default-branch>:refs/remotes/origin/<default-branch> && git diff 
+origin/<default-branch>...HEAD | 
+/home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff 
+- --claim change --note "{your one-line summary}"` (use `--claim no-change` when you deliberately changed 
+nothing). Fetch the remote-tracking ref itself with that explicit refspec and diff against 
+`origin/<default-branch>`, never the local one: pooled project clones do not keep their local default branch 
+current, a bare single-branch fetch can refresh only `FETCH_HEAD` and leave `origin/<default-branch>` stale, 
+and a stale base moves the merge base back so the pass reports files, hunks and line counts from commits you 
+never wrote. This is the same base rule `bin/fm-review-diff.sh` follows for a remote-backed project. It 
+asserts diff facts only - it is not a gate, it blocks nothing, and it replaces no existing authority.
+
+--- brief for mode=local-only (/tmp/fm-diffassert-live.ADjtY1/fm-home/data/live-local-only/brief.md), deterministic diff pass lines ---
+83:Before reporting done, run the deterministic diff pass over your committed branch and report what it 
+printed: `git diff <default-branch>...HEAD | 
+/home/pavanpavan/.no-mistakes/worktrees/0d441987aae0/01M30P3VTNZ24E67XZ0427TFW0/bin/fm-diff-assert.sh --diff 
+- --claim change --note "{your one-line summary}"` (use `--claim no-change` when you deliberately changed 
+nothing). This project is local-only, so the authoritative base is the local `<default-branch>` you rebase 
+onto - the same base `bin/fm-review-diff.sh` resolves for a project with no remote. It asserts diff facts 
+only - it is not a gate, it blocks nothing, and it replaces no existing authority.

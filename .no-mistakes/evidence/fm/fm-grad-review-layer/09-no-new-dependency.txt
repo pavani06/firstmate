@@ -1,0 +1,13 @@
+=== live run: the layer needs no new tooling - OCR is documented, not installed ===
+$ command -v ocr
+(not installed on this host)
+$ npm ls -g @alibaba-group/open-code-review 2>/dev/null
+/home/pavanpavan/.local/lib
+└── (empty)
+
+
+every assertion run in this evidence set used only bash and git:
+$ head -1 bin/fm-diff-assert.sh
+#!/usr/bin/env bash
+$ grep -c "ocr" bin/fm-diff-assert.sh
+0

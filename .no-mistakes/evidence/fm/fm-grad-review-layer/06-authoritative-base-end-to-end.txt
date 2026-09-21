@@ -1,0 +1,40 @@
+=== live run: the rendered diff pass reports THIS branch's facts, not a stale base's ===
+
+state of the pooled clone a crewmate is working in:
+  local main          = 18f0a8a   <- stale, pooled clones never freshen it
+  origin/main (local) = 18f0a8a   <- stale remote-tracking ref
+  remote origin main  = 53dc88e   <- the authoritative base
+  HEAD (fm/task)      = 19e2778, one commit the crewmate actually wrote
+  remote.origin.fetch = +refs/heads/never-matches-me:refs/remotes/origin/never-matches-me
+
+--- what the pass reported BEFORE this change: the stale local default branch ---
+$ git diff main...HEAD | fm-diff-assert.sh --diff - --claim change --note "add mine.txt"
+COVERAGE (hunks=4)
+  mine.txt @@ -0,0 +1 @@
+  up1.txt @@ -0,0 +1 @@
+  up2.txt @@ -0,0 +1 @@
+  up3.txt @@ -0,0 +1 @@
+NOTE: add mine.txt
+PASS (files=4, +4/-0)
+[exit 0]
+
+--- the bare single-branch fetch the previous round rendered ---
+$ git fetch origin main && git diff origin/main...HEAD | fm-diff-assert.sh --diff - --claim change --note "add mine.txt"
+  origin/main after the bare fetch = 18f0a8a
+COVERAGE (hunks=4)
+  mine.txt @@ -0,0 +1 @@
+  up1.txt @@ -0,0 +1 @@
+  up2.txt @@ -0,0 +1 @@
+  up3.txt @@ -0,0 +1 @@
+NOTE: add mine.txt
+PASS (files=4, +4/-0)
+[exit 0]
+
+--- the command this change renders into every remote-backed brief ---
+$ git fetch origin +refs/heads/main:refs/remotes/origin/main && git diff origin/main...HEAD | fm-diff-assert.sh --diff - --claim change --note "add mine.txt"
+  origin/main after the explicit refspec = 53dc88e
+COVERAGE (hunks=1)
+  mine.txt @@ -0,0 +1 @@
+NOTE: add mine.txt
+PASS (files=1, +1/-0)
+[exit 0]
