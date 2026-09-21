@@ -40,6 +40,18 @@
 # conflicting role is superseded rather than duplicated.
 # fm_ship_rule_one owns the mode-specific first ship safety rule shared by an
 # ordinary ship brief and the durable contract written during scout promotion.
+# fm_prose_skills_line owns the one-line reference to the fleet prose skills
+# that generated briefs carry where they shape reader-facing prose: every ship
+# mode block below, the scout Definition of done, and the secondmate charter
+# in bin/fm-brief.sh. The two referenced skills own the writing rules; this
+# line and AGENTS.md section 11 only point at them and never restate their
+# content. The caller passes the directory the skills are reachable at in the
+# brief's own frame: a same-host ship or scout brief takes the default
+# generating-checkout path, while a secondmate charter passes the home-relative
+# `.agents/skills` plus the qualifier naming the base it is relative to,
+# because a charter is published verbatim to a remote home
+# (bin/fm-remote-home-seed.sh) where the parent's paths name nothing, and is
+# re-read from whatever directory the secondmate has stepped into.
 
 fm_brief_worker_role() {  # <state-dir> <task-id>
   local state=$1 task_id=$2
@@ -242,12 +254,18 @@ fm_ask_user_escalation_block() {  # <data-dir> <task-id>
 EOF
 }
 
+fm_prose_skills_line() {  # [<skills-dir> [<base-qualifier>]]
+  local skills=${1:-$FM_ROOT/.agents/skills} base=${2:-}
+  printf '%s\n' "Reader-facing prose you author (reports and other delivered docs, commit messages, any PR text you write or supply yourself, status and reply lines) follows the fleet prose skills: read $base\`$skills/i-have-adhd/SKILL.md\` and \`$skills/no-ai-slop/SKILL.md\` (with its \`eval.md\` self-check) before writing any of it."
+}
+
 fm_dod_block() {  # <mode> <task-id> <firstmate-root>
-  local mode=$1 id=$2 root=${3:-}
+  local mode=$1 id=$2 root=${3:-} prose_line
   if [ -z "$root" ]; then
     echo "error: fm_dod_block: firstmate root is required" >&2
     return 1
   fi
+  prose_line=$(fm_prose_skills_line "$root/.agents/skills") || return 1
   # The pass is only as good as its base, and the authoritative base is the one
   # `bin/fm-review-diff.sh` resolves: pooled project clones never freshen their
   # local default branch, so a remote-backed project compares against a freshly
@@ -275,6 +293,7 @@ fm_dod_block() {  # <mode> <task-id> <firstmate-root>
 # Definition of done
 Delivery contract: mode=direct-PR
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
+$prose_line
 The task is complete only when committed on your branch.
 $diff_pass
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then append \`done [at=<epoch>]: PR {url}\` to the status file and stop.
@@ -286,6 +305,7 @@ EOF
 # Definition of done
 Delivery contract: mode=local-only
 This task ships **local-only**: no remote, no PR, no pipeline.
+$prose_line
 The task is complete only when committed on your branch \`fm/$id\`. Do NOT push, do NOT open a PR, do NOT merge.
 Keep your branch a clean fast-forward onto the current default branch - if \`main\` has advanced, rebase onto it so the eventual merge stays a fast-forward.
 $diff_pass
@@ -298,6 +318,9 @@ EOF
 # Definition of done
 Delivery contract: mode=no-mistakes
 The task is complete only when committed on your branch.
+$prose_line
+The pipeline's own agent writes the PR body in this mode, so the only PR text those skills reach is text you write yourself, such as a title or summary a gate asks you for.
+The prose skills never restyle the captain's words you carry into \`--intent\`; what that string must contain is the contract below.
 $diff_pass
 When you believe it is complete, append \`done [at=<epoch>]: {summary}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.

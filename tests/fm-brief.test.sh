@@ -932,6 +932,37 @@ test_ship_and_scout_teach_validation_round_pause() {
   pass "fm-brief.sh: ship and scout scaffolds teach validation-round pauses"
 }
 
+# The graduated lab evidence conventions are fleet norm, so every scaffold that
+# tells a worker how to report must point at their single owner; the parser and
+# the state verbs stay untouched, so the assertion is the pointer line only.
+test_all_scaffolds_point_at_evidence_conventions() {
+  local home brief
+  home="$TMP_ROOT/evidence-conventions-home"
+  mkdir -p "$home/data"
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-brief.sh" sample-ship sample --mode no-mistakes >/dev/null 2>&1
+  brief="$home/data/sample-ship/brief.md"
+  assert_grep "Completion, verification, bug-verdict, and measurement claims in status lines, reports, and PR descriptions follow" "$brief" \
+    "ship brief did not grade status and PR claims with the evidence conventions"
+  assert_grep "$ROOT/.agents/skills/evidence-conventions/SKILL.md" "$brief" \
+    "ship brief did not point at the evidence-conventions skill owner"
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
+    "$ROOT/bin/fm-brief.sh" sample-scout sample --scout >/dev/null 2>&1
+  brief="$home/data/sample-scout/brief.md"
+  assert_grep "Completion, verification, bug-verdict, and measurement claims in status lines and reports follow" "$brief" \
+    "scout brief did not grade status and report claims with the evidence conventions"
+  assert_grep "$ROOT/.agents/skills/evidence-conventions/SKILL.md" "$brief" \
+    "scout brief did not point at the evidence-conventions skill owner"
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" FM_SECONDMATE_CHARTER='sample domain' \
+    "$ROOT/bin/fm-brief.sh" sample-charter --secondmate --no-projects >/dev/null 2>&1
+  brief="$home/data/sample-charter/brief.md"
+  assert_grep "Completion, verification, bug-verdict, and measurement claims in parent-channel lines and reports follow" "$brief" \
+    "secondmate charter did not grade parent-channel claims with the evidence conventions"
+  assert_grep "\`evidence-conventions\` in this home's \`.agents/skills/\`" "$brief" \
+    "secondmate charter did not point at its own evidence-conventions skill copy"
+  pass "fm-brief.sh: ship, scout, and charter scaffolds point at the evidence-conventions owner"
+}
+
 test_scout_and_secondmate_load_decision_hold_policy() {
   local home scout charter
   home="$TMP_ROOT/decision-policy-home"
@@ -949,6 +980,62 @@ test_scout_and_secondmate_load_decision_hold_policy() {
   assert_grep "load \`captain-hold-lifecycle\`" "$charter" \
     "secondmate charter did not load the shared captain-call policy for detailed investigations"
   pass "fm-brief.sh: investigation and visual-review completions load the shared decision policy"
+}
+
+# Every generated brief points its agent at the fleet prose skills where it
+# shapes reader-facing prose, including the secondmate charter: a secondmate's
+# docs and parent-channel lines reach the captain directly, not through a crew
+# brief. A ship or scout brief runs on the generating host and takes that
+# checkout's absolute path; a charter is published verbatim into a remote home
+# (bin/fm-remote-home-seed.sh rewrites only the status path), so it must carry
+# no path from the generating checkout at all, and must name the base its
+# relative paths resolve against, the way the charter's other cross-file
+# references do.
+# The rendered no-mistakes brief also has to scope its PR prose claim to text
+# the crewmate actually authors, since the pipeline's own agent writes that
+# mode's PR body.
+test_briefs_reference_fleet_prose_skills() {
+  local home kind brief
+  home="$TMP_ROOT/prose-skills-home"
+  mkdir -p "$home/data"
+  for kind in no-mistakes direct-PR local-only scout; do
+    if [ "$kind" = scout ]; then
+      FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$kind" alpha --scout >/dev/null 2>&1 \
+        || fail "scout scaffold failed"
+    else
+      FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$kind" alpha --mode "$kind" >/dev/null 2>&1 \
+        || fail "$kind scaffold failed"
+    fi
+    brief="$home/data/$kind/brief.md"
+    assert_grep "$ROOT/.agents/skills/i-have-adhd/SKILL.md" "$brief" \
+      "$kind brief does not reference the i-have-adhd prose skill"
+    assert_grep "$ROOT/.agents/skills/no-ai-slop/SKILL.md" "$brief" \
+      "$kind brief does not reference the no-ai-slop prose skill"
+    assert_grep "eval.md" "$brief" "$kind brief does not name the no-ai-slop self-check"
+  done
+  brief="$home/data/no-mistakes/brief.md"
+  assert_grep "any PR text you write or supply yourself" "$brief" \
+    "no-mistakes brief claims prose coverage over PR text the crewmate does not author"
+  assert_grep "the only PR text those skills reach is text you write yourself" "$brief" \
+    "no-mistakes brief does not scope the PR prose rules to what the crewmate supplies"
+  assert_no_grep "done summary" "$brief" \
+    "no-mistakes brief counts the status done line as PR copy"
+  assert_grep "The prose skills never restyle the captain's words you carry into" "$brief" \
+    "no-mistakes brief does not exempt the captain's words from the prose skills"
+  assert_no_grep "copied verbatim" "$brief" \
+    "no-mistakes brief contradicts its own by-reference --intent rule"
+  FM_HOME="$home" FM_SECONDMATE_CHARTER='Supervise assigned work.' \
+    "$ROOT/bin/fm-brief.sh" prose-mate --secondmate --no-projects >/dev/null 2>&1 \
+    || fail "secondmate scaffold failed"
+  brief="$home/data/prose-mate/brief.md"
+  assert_grep "this home's \`.agents/skills/i-have-adhd/SKILL.md\`" "$brief" \
+    "secondmate charter does not reach the i-have-adhd prose skill from a base it names"
+  assert_grep "\`.agents/skills/no-ai-slop/SKILL.md\`" "$brief" \
+    "secondmate charter does not reference the no-ai-slop prose skill host-locally"
+  assert_grep "eval.md" "$brief" "secondmate charter does not name the no-ai-slop self-check"
+  assert_no_grep "$ROOT/" "$brief" \
+    "secondmate charter embeds a generating-checkout path that names nothing in a remote home"
+  pass "fm-brief: ship, scout, and charter scaffolds reference the fleet prose skills"
 }
 
 # A scout brief offers the Lavish review loop only when bootstrap confirms the
@@ -1059,6 +1146,8 @@ test_secondmate_marked_request_reporting_contract
 test_secondmate_directory_paths_are_absolute_and_output_is_stable
 test_pause_verb_override_renders_all_brief_scaffolds
 test_ship_and_scout_teach_validation_round_pause
+test_all_scaffolds_point_at_evidence_conventions
 test_scout_and_secondmate_load_decision_hold_policy
+test_briefs_reference_fleet_prose_skills
 test_scout_and_secondmate_scaffold
 test_scout_lavish_line_follows_presentation_floor
