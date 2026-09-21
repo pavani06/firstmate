@@ -560,6 +560,7 @@ If a task will drive Herdr lifecycle behavior, scaffold with `--herdr-lab`; if t
 The generated Herdr contract must use a named non-`default` isolated lab and its guarded helper for every lifecycle action.
 
 Load `secondmate-provisioning` before creating or using a charter brief and preserve its idle-by-default and marked-return-channel contracts.
+Generated ship, scout, and secondmate-charter briefs reference the fleet prose skills (`.agents/skills/i-have-adhd/` and `.agents/skills/no-ai-slop/`) at the points where they shape report, PR, and reply prose; those skills own the writing rules and are never restated in briefs.
 Status appends are sparse supervisor-actionable events, not routine progress; `bin/fm-classify-lib.sh` owns keyed open and resolved semantics.
 The completion, verification, bug-verdict, and measurement claim vocabulary for those lines and for briefs and reports is owned by `evidence-conventions` (section 13).
 The scaffold is a safety contract, not a suggestion.

@@ -920,6 +920,62 @@ test_scout_and_secondmate_load_decision_hold_policy() {
   pass "fm-brief.sh: investigation and visual-review completions load the shared decision policy"
 }
 
+# Every generated brief points its agent at the fleet prose skills where it
+# shapes reader-facing prose, including the secondmate charter: a secondmate's
+# docs and parent-channel lines reach the captain directly, not through a crew
+# brief. A ship or scout brief runs on the generating host and takes that
+# checkout's absolute path; a charter is published verbatim into a remote home
+# (bin/fm-remote-home-seed.sh rewrites only the status path), so it must carry
+# no path from the generating checkout at all, and must name the base its
+# relative paths resolve against, the way the charter's other cross-file
+# references do.
+# The rendered no-mistakes brief also has to scope its PR prose claim to text
+# the crewmate actually authors, since the pipeline's own agent writes that
+# mode's PR body.
+test_briefs_reference_fleet_prose_skills() {
+  local home kind brief
+  home="$TMP_ROOT/prose-skills-home"
+  mkdir -p "$home/data"
+  for kind in no-mistakes direct-PR local-only scout; do
+    if [ "$kind" = scout ]; then
+      FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$kind" alpha --scout >/dev/null 2>&1 \
+        || fail "scout scaffold failed"
+    else
+      FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$kind" alpha --mode "$kind" >/dev/null 2>&1 \
+        || fail "$kind scaffold failed"
+    fi
+    brief="$home/data/$kind/brief.md"
+    assert_grep "$ROOT/.agents/skills/i-have-adhd/SKILL.md" "$brief" \
+      "$kind brief does not reference the i-have-adhd prose skill"
+    assert_grep "$ROOT/.agents/skills/no-ai-slop/SKILL.md" "$brief" \
+      "$kind brief does not reference the no-ai-slop prose skill"
+    assert_grep "eval.md" "$brief" "$kind brief does not name the no-ai-slop self-check"
+  done
+  brief="$home/data/no-mistakes/brief.md"
+  assert_grep "any PR text you write or supply yourself" "$brief" \
+    "no-mistakes brief claims prose coverage over PR text the crewmate does not author"
+  assert_grep "the only PR text those skills reach is text you write yourself" "$brief" \
+    "no-mistakes brief does not scope the PR prose rules to what the crewmate supplies"
+  assert_no_grep "done summary" "$brief" \
+    "no-mistakes brief counts the status done line as PR copy"
+  assert_grep "The prose skills never restyle the captain's words you carry into" "$brief" \
+    "no-mistakes brief does not exempt the captain's words from the prose skills"
+  assert_no_grep "copied verbatim" "$brief" \
+    "no-mistakes brief contradicts its own by-reference --intent rule"
+  FM_HOME="$home" FM_SECONDMATE_CHARTER='Supervise assigned work.' \
+    "$ROOT/bin/fm-brief.sh" prose-mate --secondmate --no-projects >/dev/null 2>&1 \
+    || fail "secondmate scaffold failed"
+  brief="$home/data/prose-mate/brief.md"
+  assert_grep "this home's \`.agents/skills/i-have-adhd/SKILL.md\`" "$brief" \
+    "secondmate charter does not reach the i-have-adhd prose skill from a base it names"
+  assert_grep "\`.agents/skills/no-ai-slop/SKILL.md\`" "$brief" \
+    "secondmate charter does not reference the no-ai-slop prose skill host-locally"
+  assert_grep "eval.md" "$brief" "secondmate charter does not name the no-ai-slop self-check"
+  assert_no_grep "$ROOT/" "$brief" \
+    "secondmate charter embeds a generating-checkout path that names nothing in a remote home"
+  pass "fm-brief: ship, scout, and charter scaffolds reference the fleet prose skills"
+}
+
 # A scout brief offers the Lavish review loop only when bootstrap confirms the
 # supported lavish-axi floor at scaffold time; a missing or older build gets a
 # text-report instruction instead, so a scout never drives a below-floor Lavish.
@@ -1028,5 +1084,6 @@ test_pause_verb_override_renders_all_brief_scaffolds
 test_ship_and_scout_teach_validation_round_pause
 test_all_scaffolds_point_at_evidence_conventions
 test_scout_and_secondmate_load_decision_hold_policy
+test_briefs_reference_fleet_prose_skills
 test_scout_and_secondmate_scaffold
 test_scout_lavish_line_follows_presentation_floor
