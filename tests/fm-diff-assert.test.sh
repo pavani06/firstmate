@@ -981,8 +981,10 @@ for guard in '--forbid-path state/' '--allow-path docs/' '--max-files 0' '--clai
   # shellcheck disable=SC2086  # each guard is a deliberate two-token flag pair
   out=$(bash "$REVIEW" --diff "$HEADERLESS_DIFF" $guard 2>&1) && code=0 || code=$?
   expect_code 2 "$code" "a headerless diff is refused, not verdicted: $guard"
-  assert_contains "$out" "no 'diff --git' header" \
-    "the refusal names the missing header: $guard"
+  assert_contains "$out" "content that no file record names" \
+    "the refusal names the missing file record: $guard"
+  assert_contains "$out" "'Submodule' record" \
+    "the refusal names the submodule record it also accepts: $guard"
   assert_not_contains "$out" "PASS" "a headerless diff never reports PASS: $guard"
   assert_not_contains "$out" "FAIL" "a headerless diff never reports FAIL: $guard"
 done

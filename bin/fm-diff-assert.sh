@@ -537,8 +537,8 @@ fi
 # content. Refuse it rather than return a verdict over a partial parse.
 if [ "$FILE_COUNT" -eq 0 ] \
   && { [ "$HUNK_COUNT" -gt 0 ] || [ "$STRUCTURAL" -eq 1 ]; }; then
-  printf 'error: diff has content but no %s header; this layer reads git unified diffs, which carry one %s header per file\n' \
-    "'diff --git'" "'diff --git'" >&2
+  printf 'error: diff has content that no file record names; this layer reads git unified diffs, where each file carries a %s header or a %s record\n' \
+    "'diff --git'" "'Submodule'" >&2
   exit 2
 fi
 
