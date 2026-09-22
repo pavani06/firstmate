@@ -56,7 +56,7 @@ mkdir -p "$STATE/worker-sessions"
 # dir on every launch; provider token refreshes land on this copy, never on
 # the original.
 AGENT_SRC=$HOME/.pi/agent
-AGENT_DIR=$HOME/.config/fm-worker-agent
+AGENT_DIR=$HOME/.config/fm-worker-agent-$FM_TASK_ID   # por task: spawns paralelos não se apagam (race do smoke r9a/r9b)
 rm -rf "$AGENT_DIR"
 mkdir -p "$AGENT_DIR"
 chmod 700 "$AGENT_DIR"
@@ -97,6 +97,14 @@ if [ -d "$HOME/.pi/agent/bin" ]; then
   bw+=(--ro-bind "$HOME/.pi/agent/bin" "$HOME/.pi/agent/bin")
 fi
 bw+=(--bind "$AGENT_DIR" "/home/futanbear/.pi-agent")   # rw: pi cria .lock e faz refresh na cópia por dispatch (original nunca montado)
+if [ -n "$GITDIR" ]; then
+  # linked worktree: o gitdir vive dentro do clone primário (sob /home/futanbear,
+  # escondido pelo tmpfs) — monta via /host: .git do clone ro + gitdir desta
+  # worktree rw (index/HEAD)
+  CLONE=${GITDIR%/.git/worktrees/*}
+  bw+=(--ro-bind "/host$CLONE/.git" "$CLONE/.git")
+  bw+=(--bind "/host$GITDIR" "$GITDIR")
+fi
 bw+=(--bind "$WT" "$WT")
 bw+=(--bind "$STATE/worker-sessions" "$STATE/worker-sessions")
 for f in "$STATE/$FM_TASK_ID.status" "$STATE/$FM_TASK_ID.turn-ended" \
