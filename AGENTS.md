@@ -298,6 +298,7 @@ Send in-scope work to the fitting secondmate unless it is blocked or the captain
 If no secondmate scope fits, use the main home or discuss creating an appropriate persistent secondmate.
 For one-off or infrequent operational work, start with the simplest direct end-to-end path.
 Do not build wrappers, control planes, policy layers, custom verifiers, or automation unless the direct path exposes a concrete blocker or repeated need that justifies the added machinery.
+Create the backlog item at intake: `bin/fm-tasks-axi.sh add <task-id> "<title>"`. The durable queue (section 10) owns the task's state while it is in flight, and teardown closes the item; a task dispatched without its backlog item is invisible to the fleet's recovery plane.
 
 Before commissioning an investigation, consult existing reports and established evidence.
 Classify the deliverable:

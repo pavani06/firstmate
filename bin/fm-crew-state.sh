@@ -232,6 +232,7 @@ map_log_state() {  # <line>
     blocked)        echo blocked ;;
     done)           echo "done" ;;
     failed)         echo failed ;;
+    stopped)        echo stopped ;;
     *)              echo unknown ;;
   esac
 }
@@ -1203,7 +1204,17 @@ if [ "$KIND" != secondmate ]; then
   BUSY_VERDICT=$(crew_busy_verdict "$BACKEND_TARGET")
   case "${BUSY_VERDICT%% *}" in
     busy) emit working pane "harness busy (${BUSY_VERDICT#* })" ;;
-    idle) ;;
+    idle)
+      # EXP-MF-004 P2 (pavani06/firstmate): an exact idle busy-verdict may be a
+      # stale registration over a dead agent process (SIGKILL leaves no event
+      # and the harness never retires its own registration). Consult the
+      # backend's recovery-grade agent-state classifier before allowing the
+      # status-log fallback below: dead/missing means the agent is gone
+      # regardless of what the log's last verb says.
+      case "$TASK_BACKEND:$(fm_backend_agent_state "$TASK_BACKEND" "$BACKEND_TARGET")" in
+        herdr:dead|herdr:missing|tmux:dead|tmux:missing)
+          emit unknown none "agent process gone (backend $TASK_BACKEND agent-state dead/missing; shell remains)" ;;
+      esac ;;
     *) emit unknown pane "harness state unavailable ($BUSY_VERDICT)" ;;
   esac
 fi

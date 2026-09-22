@@ -563,6 +563,11 @@ do_exit() {
   # The incarnation is over: retire its busy wiring so no stale record or
   # orphaned generation survives the agent that produced it.
   retire_busy_incarnation
+  # EXP-MF-004 P3 (pavani06/firstmate): the status log is otherwise
+  # worker-authored; `stopped` is the one orchestrator-authored lifecycle
+  # event (fm-classify-lib recognizes it), so a captain-cancelled task is
+  # never invisible in the ledger.
+  printf 'stopped [at=%s]: exit by captain (fm-control exit)\n' "$(date +%s)" >> "$STATE/$ID.status" 2>/dev/null || true
   printf 'stopped'
 }
 

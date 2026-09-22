@@ -166,7 +166,7 @@ _fm_status_event_scan() {
     case "$line" in *[![:space:]]*) fallback=$line ;; *) continue ;; esac
     case "$line" in *:*) status_line_verb "$line" verb ;; *) verb='' ;; esac
     case "$verb" in
-      working|needs-decision|blocked|done|failed|note|\
+      working|needs-decision|blocked|done|failed|stopped|note|\
       "${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}"|\
       "${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}"|\
       "${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}") prev=$last; last=$line ;;
@@ -196,7 +196,7 @@ status_is_terminal_verb() {
   [ -n "$line" ] || return 1
   verb=$(status_line_verb "$line")
   case "$verb" in
-    done|needs-decision|blocked|failed) return 0 ;;
+    done|needs-decision|blocked|failed|stopped) return 0 ;;
     *) return 1 ;;
   esac
 }

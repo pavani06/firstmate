@@ -4604,7 +4604,33 @@ LAUNCH=${LAUNCH//__OMPEXT__/$sq_ompext}
 LAUNCH=${LAUNCH//__OMPWORKERCFG__/$sq_ompcfg}
 LAUNCH=${LAUNCH//__OPINPUT__/$sq_opinput}
 case "$HARNESS" in
-pi | pi-signed) LAUNCH=${LAUNCH//__PIBIN__/"$(shell_quote "$PI_BIN")"} ;;
+pi | pi-signed)
+  # EXP-MF-004 P1 (pavani06/firstmate): optional per-launch worker sandbox.
+  # config/worker-launch-wrapper holds one absolute path to a wrapper script
+  # that replaces the pi binary for THIS launch (the wrapper prepares a
+  # bubblewrap sandbox and execs the real binary, passed via FFM_REAL_PI_BIN).
+  # Mutually exclusive with launch-env-allowlist in this revision: the wrapper
+  # owns env policy and needs the launching user's environment to mint the
+  # dispatch token.
+  if [ -e "$CONFIG/worker-launch-wrapper" ]; then
+    if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
+      echo "error: config/worker-launch-wrapper is not supported together with launch-env-allowlist in this fork revision; remove one of them" >&2
+      exit 1
+    fi
+    if [ ! -r "$CONFIG/worker-launch-wrapper" ]; then
+      echo "error: config/worker-launch-wrapper must be a readable regular file holding one absolute path" >&2
+      exit 1
+    fi
+    SANDBOX_WRAPPER=$(sed -n '1p' "$CONFIG/worker-launch-wrapper" | tr -d '[:space:]')
+    case "$SANDBOX_WRAPPER" in
+      /*) ;;
+      *) echo "error: config/worker-launch-wrapper must hold one absolute path with no spaces" >&2; exit 1 ;;
+    esac
+    LAUNCH=${LAUNCH//__PIBIN__/"$(shell_quote "$SANDBOX_WRAPPER")"}
+    LAUNCH="FFM_REAL_PI_BIN=$(shell_quote "$PI_BIN") $LAUNCH"
+  else
+    LAUNCH=${LAUNCH//__PIBIN__/"$(shell_quote "$PI_BIN")"}
+  fi ;;
 cursor) LAUNCH=${LAUNCH//__CURSORBIN__/"$(shell_quote "$CURSOR_BIN")"} ;;
 gemini) LAUNCH=${LAUNCH//__GEMINISETTINGS__/"$(shell_quote "$STATE_REAL/$ID.gemini-settings.json")"} ;;
 omp) LAUNCH=${LAUNCH//__OMPBIN__/"$(shell_quote "$OMP_BIN")"} ;;
