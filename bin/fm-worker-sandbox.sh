@@ -66,19 +66,26 @@ done
 chmod 600 "$AGENT_DIR"/* 2>/dev/null || true
 
 # Dispatch-scoped installation token (lives only in this process env).
-GH_TOKEN=$(gh token --app-id "$FFM_APP_ID" --installation-id "$FFM_INSTALLATION_ID" \
-  --private-key <(sops -d "$FFM_PEM_ENC")) || fail "token mint failed"
+GH_TOKEN=$(gh token generate --app-id "$FFM_APP_ID" --installation-id "$FFM_INSTALLATION_ID" \
+  --key <(sops -d "$FFM_PEM_ENC") --token-only) || fail "token mint failed"
 [ -n "$GH_TOKEN" ] || fail "empty token"
-BOT_LOGIN=$(GH_TOKEN=$GH_TOKEN gh api user --jq .login) || fail "gh api user failed"
-BOT_ID=$(GH_TOKEN=$GH_TOKEN gh api user --jq .id) || fail "gh api user failed"
+# Installation tokens cannot call GET /user (403). The App's bot identity is
+# public: login = <app-slug>[bot], id via the unauthenticated users endpoint.
+BOT_LOGIN=${FFM_BOT_LOGIN:-govevo-agents[bot]}
+BOT_ID=$(gh api "users/${BOT_LOGIN}" --jq .id 2>/dev/null || true)
+if [ -n "$BOT_ID" ]; then
+  BOT_EMAIL="${BOT_ID}+${BOT_LOGIN}@users.noreply.github.com"
+else
+  BOT_EMAIL="${BOT_LOGIN}@users.noreply.github.com"
+fi
 export GH_TOKEN
 export GIT_CONFIG_COUNT=3
 export GIT_CONFIG_KEY_0="url.https://x-access-token:${GH_TOKEN}@github.com/.insteadOf"
 export GIT_CONFIG_VALUE_0="git@github.com:"
 export GIT_CONFIG_KEY_1="user.name"
-export GIT_CONFIG_VALUE_1="GovEvo Agents (firstmate worker)"
+export GIT_CONFIG_VALUE_1="${BOT_LOGIN} (firstmate worker)"
 export GIT_CONFIG_KEY_2="user.email"
-export GIT_CONFIG_VALUE_2="${BOT_ID}+${BOT_LOGIN}@users.noreply.github.com"
+export GIT_CONFIG_VALUE_2="$BOT_EMAIL"
 
 # --- sandbox binds (whitelist; everything else from the ro host bind) -------
 bw=()
