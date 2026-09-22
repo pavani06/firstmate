@@ -96,7 +96,7 @@ bw+=(--ro-bind "$HOME/.npm-global" "$HOME/.npm-global")   # pi itself lives here
 if [ -d "$HOME/.pi/agent/bin" ]; then
   bw+=(--ro-bind "$HOME/.pi/agent/bin" "$HOME/.pi/agent/bin")
 fi
-bw+=(--ro-bind "$AGENT_DIR" "/home/futanbear/.pi-agent")
+bw+=(--bind "$AGENT_DIR" "/home/futanbear/.pi-agent")   # rw: pi cria .lock e faz refresh na cópia por dispatch (original nunca montado)
 bw+=(--bind "$WT" "$WT")
 bw+=(--bind "$STATE/worker-sessions" "$STATE/worker-sessions")
 for f in "$STATE/$FM_TASK_ID.status" "$STATE/$FM_TASK_ID.turn-ended" \
@@ -114,9 +114,22 @@ bw+=(--proc /proc --dev /dev --tmpfs /tmp)
 bw+=(--chdir "$WT")
 bw+=(--die-with-parent --unshare-pid --unshare-ipc --unshare-uts)
 
-exec bwrap "${bw[@]}" \
+# EXP-MF-004 rev-exec (option J): the pi-extension cannot write busy events
+# from inside the sandbox (fm-busy-event needs to create its lock and do an
+# atomic replace in state/, which per-file binds deny on purpose). The
+# wrapper is the bwrap parent and owns the truth instead: when the sandboxed
+# agent process exits — done, error or SIGKILL — it applies the idle/settled
+# event from OUTSIDE, so busy-state never lies about a dead worker.
+set +e
+bwrap "${bw[@]}" \
   env -u SSH_AUTH_SOCK -u SSH_AGENT_LAUNCHER \
       PI_CODING_AGENT_DIR=/home/futanbear/.pi-agent \
       PI_CODING_AGENT_SESSION_DIR="$STATE/worker-sessions" \
       HOME=/home/futanbear \
-  /bin/sh -c 'unset SSH_AUTH_SOCK SSH_AGENT_LAUNCHER; exec "$@"' sh "$@"
+  /bin/sh -c 'unset SSH_AUTH_SOCK SSH_AGENT_LAUNCHER; exec "$FFM_REAL_PI_BIN" "$@"' sh "$@"
+RC=$?
+set -euo pipefail
+"$SCRIPT_DIR/fm-busy-event.sh" apply "$STATE" "$FM_TASK_ID" idle \
+  --current-gen --source fm-worker-sandbox --event agent-settled \
+  >/dev/null 2>&1 || true
+exit "$RC"
