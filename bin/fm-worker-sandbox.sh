@@ -106,7 +106,7 @@ if [ -n "$GITDIR" ]; then
   # escondido pelo tmpfs) — monta via /host: .git do clone ro + gitdir desta
   # worktree rw (index/HEAD)
   CLONE=${GITDIR%/.git/worktrees/*}
-  bw+=(--ro-bind "$CLONE/.git" "$CLONE/.git")
+  bw+=(--bind "$CLONE/.git" "$CLONE/.git")   # rw: git precisa escrever refs/objects/logs no .git comum (carve-out anotado)
   bw+=(--bind "$GITDIR" "$GITDIR")
 fi
 bw+=(--bind "$WT" "$WT")
