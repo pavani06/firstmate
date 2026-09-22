@@ -48,6 +48,10 @@ ENV_FILE=$FM_HOME/config/worker-sandbox.env
 [ -r "$FFM_PEM_ENC" ] || fail "unreadable $FFM_PEM_ENC"
 
 WT=$PWD
+GITDIR=''
+if [ -f "$WT/.git" ]; then
+  GITDIR=$(sed -n 's/^gitdir: //p' "$WT/.git")
+fi
 STATE=$FM_HOME/state
 DATA=$FM_HOME/data
 mkdir -p "$STATE/worker-sessions"
@@ -89,7 +93,7 @@ export GIT_CONFIG_VALUE_2="$BOT_EMAIL"
 
 # --- sandbox binds (whitelist; everything else from the ro host bind) -------
 bw=()
-bw+=(--ro-bind / /)
+bw+=(--ro-bind / /)                    # host inteiro read-only
 bw+=(--tmpfs /home/futanbear)          # operator home gone (creds live there)
 bw+=(--tmpfs /run/user)                # ssh-agent socket gone
 bw+=(--ro-bind "$HOME/.npm-global" "$HOME/.npm-global")   # pi itself lives here
@@ -102,8 +106,8 @@ if [ -n "$GITDIR" ]; then
   # escondido pelo tmpfs) — monta via /host: .git do clone ro + gitdir desta
   # worktree rw (index/HEAD)
   CLONE=${GITDIR%/.git/worktrees/*}
-  bw+=(--ro-bind "/host$CLONE/.git" "$CLONE/.git")
-  bw+=(--bind "/host$GITDIR" "$GITDIR")
+  bw+=(--ro-bind "$CLONE/.git" "$CLONE/.git")
+  bw+=(--bind "$GITDIR" "$GITDIR")
 fi
 bw+=(--bind "$WT" "$WT")
 bw+=(--bind "$STATE/worker-sessions" "$STATE/worker-sessions")
