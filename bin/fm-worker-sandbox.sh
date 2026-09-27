@@ -24,6 +24,7 @@
 #
 # Token modes (FFM_TOKEN_MODE, default "installation"):
 #   installation  GH_TOKEN is minted here from the PEM (installation-wide). Legacy.
+#   (any other value aborts the launch - no silent fallback to installation)
 #   scoped        GH_TOKEN is taken from FFM_WORKER_GH_TOKEN, a repo-scoped,
 #                 least-privilege token minted by the ORCHESTRATION outside this
 #                 sandbox. Fail-closed: an empty FFM_WORKER_GH_TOKEN aborts the
@@ -52,8 +53,13 @@ ENV_FILE=$FM_HOME/config/worker-sandbox.env
 [ -r "$ENV_FILE" ] || fail "missing $ENV_FILE"
 # shellcheck disable=SC1090
 . "$ENV_FILE"
+FFM_TOKEN_MODE=${FFM_TOKEN_MODE:-installation}
+case "$FFM_TOKEN_MODE" in
+  installation|scoped) ;;
+  *) fail "invalid FFM_TOKEN_MODE '$FFM_TOKEN_MODE' (expected: installation | scoped)" ;;
+esac
 : "${FFM_APP_ID:?}" "${FFM_INSTALLATION_ID:?}"
-if [ "${FFM_TOKEN_MODE:-installation}" != scoped ]; then
+if [ "$FFM_TOKEN_MODE" != scoped ]; then
   : "${FFM_PEM_ENC:?}"
   [ -r "$FFM_PEM_ENC" ] || fail "unreadable $FFM_PEM_ENC"
 fi
@@ -81,13 +87,14 @@ done
 chmod 600 "$AGENT_DIR"/* 2>/dev/null || true
 
 # Per-dispatch token (lives only in this process env).
-if [ "${FFM_TOKEN_MODE:-installation}" = scoped ]; then
+if [ "$FFM_TOKEN_MODE" = scoped ]; then
   # Scoped mode: the orchestration minted a repo-scoped, least-privilege token
   # OUTSIDE this sandbox and passed it via the DEDICATED variable. Fail closed -
   # never fall back to an installation-wide mint, and never read a general
   # GH_TOKEN (e.g. the operator's personal gh token) from the environment.
   [ -n "${FFM_WORKER_GH_TOKEN:-}" ] || fail "FFM_TOKEN_MODE=scoped but FFM_WORKER_GH_TOKEN is empty (fail-closed; no installation-wide fallback)"
   GH_TOKEN=$FFM_WORKER_GH_TOKEN
+  unset FFM_WORKER_GH_TOKEN
 else
   GH_TOKEN=$(gh token generate --app-id "$FFM_APP_ID" --installation-id "$FFM_INSTALLATION_ID" \
     --key <(sops -d "$FFM_PEM_ENC") --token-only) || fail "token mint failed"
