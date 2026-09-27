@@ -6,9 +6,9 @@
 # real pi binary (FFM_REAL_PI_BIN, passed by fm-spawn) with the original
 # arguments inside it.
 #
-# Env policy inside the sandbox: SSH_AUTH_SOCK/SSH_AGENT_* removed; GH_TOKEN
-# minted per dispatch from the GitHub App PEM (SOPS-encrypted; decrypted via
-# process substitution, plaintext never on disk); git identity and URL rewrite
+# Env policy inside the sandbox: SSH_AUTH_SOCK/SSH_AGENT_* removed; GH_TOKEN set
+# per dispatch (installation-wide mint from the PEM, or a repo-scoped token from
+# the orchestration - see "Token modes" below); git identity and URL rewrite
 # point pushes at the App installation token; PI_CODING_AGENT_DIR points at a
 # per-dispatch COPY of the operator's agent auth (the original is never
 # mounted). Filesystem: host read-only except the explicit rw binds.
@@ -20,7 +20,16 @@
 # Required config (gitignored, LOCAL): config/worker-sandbox.env holding
 #   FFM_APP_ID=<github app id>
 #   FFM_INSTALLATION_ID=<installation id covering the target repo>
-#   FFM_PEM_ENC=<path to the sops-encrypted app pem>
+#   FFM_PEM_ENC=<path to the sops-encrypted app pem>  (installation mode only)
+#
+# Token modes (FFM_TOKEN_MODE, default "installation"):
+#   installation  GH_TOKEN is minted here from the PEM (installation-wide). Legacy.
+#   (any other value aborts the launch - no silent fallback to installation)
+#   scoped        GH_TOKEN is taken from FFM_WORKER_GH_TOKEN, a repo-scoped,
+#                 least-privilege token minted by the ORCHESTRATION outside this
+#                 sandbox. Fail-closed: an empty FFM_WORKER_GH_TOKEN aborts the
+#                 launch; there is NO fallback to an installation-wide mint, and a
+#                 general GH_TOKEN from the environment is NEVER read. No PEM needed.
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
@@ -44,8 +53,16 @@ ENV_FILE=$FM_HOME/config/worker-sandbox.env
 [ -r "$ENV_FILE" ] || fail "missing $ENV_FILE"
 # shellcheck disable=SC1090
 . "$ENV_FILE"
-: "${FFM_APP_ID:?}" "${FFM_INSTALLATION_ID:?}" "${FFM_PEM_ENC:?}"
-[ -r "$FFM_PEM_ENC" ] || fail "unreadable $FFM_PEM_ENC"
+FFM_TOKEN_MODE=${FFM_TOKEN_MODE:-installation}
+case "$FFM_TOKEN_MODE" in
+  installation|scoped) ;;
+  *) fail "invalid FFM_TOKEN_MODE '$FFM_TOKEN_MODE' (expected: installation | scoped)" ;;
+esac
+: "${FFM_APP_ID:?}" "${FFM_INSTALLATION_ID:?}"
+if [ "$FFM_TOKEN_MODE" != scoped ]; then
+  : "${FFM_PEM_ENC:?}"
+  [ -r "$FFM_PEM_ENC" ] || fail "unreadable $FFM_PEM_ENC"
+fi
 
 WT=$PWD
 GITDIR=''
@@ -69,9 +86,19 @@ for f in auth.json models.json settings.json; do
 done
 chmod 600 "$AGENT_DIR"/* 2>/dev/null || true
 
-# Dispatch-scoped installation token (lives only in this process env).
-GH_TOKEN=$(gh token generate --app-id "$FFM_APP_ID" --installation-id "$FFM_INSTALLATION_ID" \
-  --key <(sops -d "$FFM_PEM_ENC") --token-only) || fail "token mint failed"
+# Per-dispatch token (lives only in this process env).
+if [ "$FFM_TOKEN_MODE" = scoped ]; then
+  # Scoped mode: the orchestration minted a repo-scoped, least-privilege token
+  # OUTSIDE this sandbox and passed it via the DEDICATED variable. Fail closed -
+  # never fall back to an installation-wide mint, and never read a general
+  # GH_TOKEN (e.g. the operator's personal gh token) from the environment.
+  [ -n "${FFM_WORKER_GH_TOKEN:-}" ] || fail "FFM_TOKEN_MODE=scoped but FFM_WORKER_GH_TOKEN is empty (fail-closed; no installation-wide fallback)"
+  GH_TOKEN=$FFM_WORKER_GH_TOKEN
+  unset FFM_WORKER_GH_TOKEN
+else
+  GH_TOKEN=$(gh token generate --app-id "$FFM_APP_ID" --installation-id "$FFM_INSTALLATION_ID" \
+    --key <(sops -d "$FFM_PEM_ENC") --token-only) || fail "token mint failed"
+fi
 [ -n "$GH_TOKEN" ] || fail "empty token"
 # Installation tokens cannot call GET /user (403). The App's bot identity is
 # public: login = <app-slug>[bot], id via the unauthenticated users endpoint.
