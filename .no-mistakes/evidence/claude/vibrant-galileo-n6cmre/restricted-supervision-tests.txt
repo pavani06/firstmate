@@ -1,0 +1,19 @@
+ok - Pi 0.87.1: a restricted session holds the lock and drains then acknowledges through the real scripts
+ok - Pi 0.87.1: a session with Pi's default tools takes no lock and drains nothing
+ok - the extension registers nothing unless explicitly selected
+ok - only fm_drain and fm_deliver are registered, with closed inputs
+ok - a session exposing a general shell tool takes no lock and runs nothing
+ok - a restricted session locks at start, presents wakes, and acknowledges only what it presented
+ok - a presentation too large to show whole never acknowledges unseen wakes
+ok - a lock anchored to a short-lived child is not treated as this Pi process's lock
+ok - delivery passes follow each agent run, one at a time
+ok - the interval runs delivery passes without a model turn and stops at shutdown
+ok - a ready direct-PR task is armed exactly once
+ok - a no-mistakes task is armed only on its CI-ready report
+ok - two links, an open decision, a wait, an unparseable link, an unknown mode, scouts, secondmates, and a missing status arm nothing
+ok - a merge poll with no recorded change is reported and left alone
+ok - a refused arm is reported and retried on the next pass
+ok - only a merge the monitor confirmed is cleaned up, once, without --force
+ok - a refused cleanup is reported and never forced
+ok - cleanup requires the confirmed merge to be the task's one current change
+ok - the pass takes no input and refuses a home it cannot read
